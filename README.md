@@ -47,7 +47,7 @@ GEMINI_API_KEY=あなたのAPIキー
 4. ① 共通解析JSON（common_analysis_json）が生成される
 5. ② 質問定義JSONが生成され、プレビューで編集可能（任意）
 6. ③ FileMaker用Excel（基本情報シート・職歴情報シート）が生成される
-7. 画面からExcelをダウンロード
+7. 画面からExcelをダウンロード（1ファイルに「基本情報シート」「職歴情報シート」の2シートを含む `FileMaker用_氏名.xlsx`）
 
 ## フォルダ構成
 
