@@ -12,13 +12,14 @@ const JOB_TYPE_UNSPECIFIED_OUTPUT =
 
 /**
  * Phase1: 抽出品質ゲート。不足時は422。
- * 求職者は多数おり特定の1名に依存しない。デフォルトは「文字数のみ」で、キーワードチェックは環境変数で有効化する。
+ * 判定対象は「PDF 1通の抽出テキスト全体の文字数」のみ。項目ごと・ページごとの判定は行わない。
+ * 101字以上で通過。100文字以下（0〜100）をエラー対象とする（抽出失敗・ほぼ空白のみを通さない）。
  */
 function getGateMinChars(): number {
   const v = process.env.HEARING_GATE_MIN_CHARS;
-  if (v === "" || v == null) return 400;
+  if (v === "" || v == null) return 101;
   const n = parseInt(v, 10);
-  return Number.isNaN(n) ? 400 : n;
+  return Number.isNaN(n) ? 101 : n;
 }
 /** 空ならスキップ（デフォルト）。特定PDF用に厳格化したいときだけ env で指定 */
 function getGateQualificationSubstrings(): string[] {
