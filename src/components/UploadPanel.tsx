@@ -81,7 +81,7 @@ export function UploadPanel({
         <h2 className="mb-3 text-lg font-semibold">2. ファイルをアップロード</h2>
       )}
       <div
-        className={`rounded border-2 border-dashed p-6 transition ${
+        className={`flex min-h-[140px] flex-col justify-center rounded border-2 border-dashed p-6 transition ${
           drag ? "border-blue-500 bg-blue-50" : "border-gray-300"
         } ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
         onDragOver={(e) => {

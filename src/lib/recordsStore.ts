@@ -114,3 +114,36 @@ export async function getCachedExcelPath(candidateId: string): Promise<string | 
     return null;
   }
 }
+
+export async function getRecord(candidateId: string): Promise<StoredRecord | null> {
+  const records = await readRecords();
+  return records.find((r) => r.candidateId === candidateId) ?? null;
+}
+
+export async function deleteRecord(candidateId: string): Promise<void> {
+  const records = await readRecords();
+  const next = records.filter((r) => r.candidateId !== candidateId);
+  await writeRecords(next);
+  const excelPath = path.join(CACHE_DIR, `${candidateId}_last.xlsx`);
+  try {
+    await fs.unlink(excelPath);
+  } catch {
+    // ignore
+  }
+}
+
+export async function deleteRecords(candidateIds: string[]): Promise<void> {
+  const ids = new Set(candidateIds);
+  const records = await readRecords();
+  const next = records.filter((r) => !ids.has(r.candidateId));
+  await writeRecords(next);
+  await ensureDataDir();
+  for (const id of ids) {
+    const excelPath = path.join(CACHE_DIR, `${id}_last.xlsx`);
+    try {
+      await fs.unlink(excelPath);
+    } catch {
+      // ignore
+    }
+  }
+}
