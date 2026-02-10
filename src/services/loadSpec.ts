@@ -46,17 +46,60 @@ export type Spec04 = {
   input_instruction?: string;
 };
 
-/** job_type 未指定時は呼び出し側で1行のみ返すこと。指定時のみ本関数でプロンプトを組み立てる。 */
+export type Spec05 = {
+  system_prompt?: string;
+  output_instruction?: string;
+};
+
+/** Step A 構造化抽出の結果型（04 base_prompt は一切変更しない） */
+export type StructuredExtractResult = {
+  highest_education_category?: string;
+  qualifications_list?: string[];
+  address_full?: string;
+  address_has_banchi?: boolean;
+  address_has_building?: boolean;
+  address_has_room?: boolean;
+  education_has_faculty_keywords?: boolean;
+};
+
+/** Step A: 構造化抽出用プロンプトを組み立てる */
+export function buildStructuredExtractPrompt(
+  resumePdfText: string,
+  interviewMemoText: string
+): { systemInstruction: string; userPrompt: string } {
+  const spec = loadYamlSafe<Spec05>("05_structured_extract_prompt.yaml");
+  const systemInstruction = [spec.system_prompt ?? "", spec.output_instruction ?? ""].join("\n\n").trim();
+  const userPrompt = `【候補者WEB履歴書PDF抽出テキスト】
+${resumePdfText || "(なし)"}
+
+【面談メモ】
+${interviewMemoText || "(なし)"}
+
+上記のみから指定項目を抽出し、JSONのみを出力してください。`;
+  return { systemInstruction, userPrompt };
+}
+
+/** job_type 未指定時は呼び出し側で1行のみ返すこと。指定時のみ本関数でプロンプトを組み立てる。base_prompt 本文は変更しない。 */
 export function buildHearingQuestionTextPrompt(
   jobType: string,
   resumePdfText: string,
-  interviewMemoText: string
+  interviewMemoText: string,
+  structuredExtract?: StructuredExtractResult | null
 ): { systemInstruction: string; userPrompt: string } {
   const spec = loadYamlSafe<Spec04>("04_hearing_question_text_prompt.yaml");
   const basePrompt = spec.base_prompt ?? "";
   const inputInstruction = spec.input_instruction ?? "";
   const systemInstruction = `${basePrompt}\n\n---\n\n${inputInstruction}`.trim();
-  const userPrompt = `【job_type】
+
+  const structuredBlock =
+    structuredExtract != null
+      ? `【事前抽出結果（判定の参考にすること。これに基づき住所・資格の誤判定を避けること）】
+${JSON.stringify(structuredExtract, null, 2)}
+
+`
+      : "";
+
+  const userPrompt = `${structuredBlock}【job_type】
 ${jobType}
 
 【候補者WEB履歴書PDF抽出テキスト】
