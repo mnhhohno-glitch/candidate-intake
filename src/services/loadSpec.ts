@@ -41,6 +41,34 @@ export type Spec03 = {
   prompt?: string;
 };
 
+export type Spec04 = {
+  base_prompt?: string;
+  input_instruction?: string;
+};
+
+/** job_type 未指定時は呼び出し側で1行のみ返すこと。指定時のみ本関数でプロンプトを組み立てる。 */
+export function buildHearingQuestionTextPrompt(
+  jobType: string,
+  resumePdfText: string,
+  interviewMemoText: string
+): { systemInstruction: string; userPrompt: string } {
+  const spec = loadYamlSafe<Spec04>("04_hearing_question_text_prompt.yaml");
+  const basePrompt = spec.base_prompt ?? "";
+  const inputInstruction = spec.input_instruction ?? "";
+  const systemInstruction = `${basePrompt}\n\n---\n\n${inputInstruction}`.trim();
+  const userPrompt = `【job_type】
+${jobType}
+
+【候補者WEB履歴書PDF抽出テキスト】
+${resumePdfText || "(なし)"}
+
+【面談メモ】
+${interviewMemoText || "(なし)"}
+
+上記を解析し、プロンプトに従い候補者に送る質問本文のみを出力してください。見出し・内部メモ・解析過程・GoogleフォームやURLは一切出力しないでください。`;
+  return { systemInstruction, userPrompt };
+}
+
 /**
  * 01 共通解析プロンプトを読み、Gemini用の systemInstruction と userPrompt を組み立てる。
  * pdfFileName を渡した場合、求職者NOはファイル名からのみ抽出する旨を明示する（正本プロンプト準拠）。

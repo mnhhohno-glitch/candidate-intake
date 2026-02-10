@@ -1,7 +1,14 @@
 import fs from "fs/promises";
 import path from "path";
 
-const DATA_DIR = path.join(process.cwd(), "data");
+/**
+ * データ保存先。Railway などで Volume をマウントする場合は
+ * 環境変数 DATA_DIR にそのパスを指定する（例: DATA_DIR=/data）。
+ * 未指定時はプロジェクト直下の data/ を使用（デプロイごとに消える）。
+ */
+const DATA_DIR = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.join(process.cwd(), "data");
 const CACHE_DIR = path.join(DATA_DIR, "cache");
 const RECORDS_FILE = path.join(DATA_DIR, "records.json");
 
