@@ -10,6 +10,9 @@ import type { GoogleFormDefinition } from "@/types/googleForm";
 
 type PipelineStep = "idle" | "analyzing" | "questions" | "excel" | "done" | "error";
 
+const JOB_TYPE_UNSPECIFIED_MESSAGE =
+  "応募先の職種を指定してください：「 」に入力してください";
+
 interface StoredRecord {
   candidateId: string;
   candidateName: string;
@@ -36,6 +39,12 @@ export default function RecordDetailPage() {
   const [questions, setQuestions] = useState<GoogleFormDefinition | null>(null);
   const [excelBlobUrl, setExcelBlobUrl] = useState<string | null>(null);
   const [excelDownloadName, setExcelDownloadName] = useState("");
+
+  const [jobType, setJobType] = useState("");
+  const [questionText, setQuestionText] = useState("");
+  const [questionGenLoading, setQuestionGenLoading] = useState(false);
+  const [questionGenError, setQuestionGenError] = useState<string | null>(null);
+  const [copyToast, setCopyToast] = useState(false);
 
   useEffect(() => {
     if (!candidateId) return;
@@ -164,6 +173,55 @@ export default function RecordDetailPage() {
     }
   }, [record, files, excelBlobUrl]);
 
+  const handleGenerateQuestionText = useCallback(async () => {
+    setQuestionGenError(null);
+    const jobTypeTrim = jobType.trim();
+    if (!jobTypeTrim) {
+      setQuestionText(JOB_TYPE_UNSPECIFIED_MESSAGE);
+      return;
+    }
+    if (!files.pdf) {
+      setQuestionGenError("PDFをアップロードしてください。");
+      return;
+    }
+    setQuestionGenLoading(true);
+    setQuestionText("");
+    try {
+      const formData = new FormData();
+      formData.append("job_type", jobTypeTrim);
+      formData.append("pdf", files.pdf);
+      if (files.interviewLog) formData.append("interviewLog", files.interviewLog);
+      const res = await fetch("/api/intake/hearing-question-text", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((data as { error?: string }).error || "質問文の生成に失敗しました");
+      }
+      const text = (data as { candidate_question_text_only?: string }).candidate_question_text_only;
+      setQuestionText(typeof text === "string" ? text : JOB_TYPE_UNSPECIFIED_MESSAGE);
+    } catch (e) {
+      setQuestionGenError(e instanceof Error ? e.message : "質問文の生成に失敗しました");
+      setQuestionText("");
+    } finally {
+      setQuestionGenLoading(false);
+    }
+  }, [jobType, files.pdf, files.interviewLog]);
+
+  const handleCopyQuestionText = useCallback(() => {
+    if (!questionText) return;
+    navigator.clipboard.writeText(questionText).then(
+      () => {
+        setCopyToast(true);
+        setTimeout(() => setCopyToast(false), 2000);
+      },
+      () => {
+        setQuestionGenError("コピーに失敗しました");
+      }
+    );
+  }, [questionText]);
+
   const handleReoutput = useCallback(async () => {
     if (!candidateId) return;
     try {
@@ -273,6 +331,69 @@ export default function RecordDetailPage() {
           {!hasFiles && step === "idle" && (
             <p className="mt-2 text-sm text-amber-700">ファイルを選択してください。</p>
           )}
+        </section>
+
+        <section className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+          <h2 className="mb-3 text-lg font-semibold text-gray-900">質問文テキスト生成（候補者送付用）</h2>
+          <div className="space-y-4">
+            <div>
+              <label htmlFor="job-type" className="mb-1 block text-sm font-medium text-gray-700">
+                応募先の職種（job_type）
+              </label>
+              <input
+                id="job-type"
+                type="text"
+                value={jobType}
+                onChange={(e) => {
+                  setJobType(e.target.value);
+                  setQuestionGenError(null);
+                }}
+                placeholder="例：営業、事務"
+                className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <button
+                type="button"
+                onClick={handleGenerateQuestionText}
+                disabled={questionGenLoading || running}
+                className="rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {questionGenLoading ? "生成中…" : "質問文を生成"}
+              </button>
+            </div>
+            {questionGenError && (
+              <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">
+                {questionGenError}
+              </div>
+            )}
+            <div>
+              <label htmlFor="question-text" className="mb-1 block text-sm font-medium text-gray-700">
+                生成された質問文（候補者送付用）
+              </label>
+              <textarea
+                id="question-text"
+                readOnly
+                value={questionText}
+                rows={12}
+                className="w-full rounded border border-gray-300 bg-gray-50 px-3 py-2 text-sm font-mono"
+                placeholder="「質問文を生成」を押すとここに表示されます"
+              />
+              <div className="mt-2 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleCopyQuestionText}
+                  disabled={!questionText}
+                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  コピー
+                </button>
+                {copyToast && (
+                  <span className="text-sm text-green-600">コピーしました</span>
+                )}
+              </div>
+            </div>
+          </div>
         </section>
 
         <div className="flex flex-wrap gap-3">

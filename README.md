@@ -2,7 +2,8 @@
 
 PDF・面談ログ・フラグリストから共通解析JSONを生成し、Googleフォーム質問定義とFileMaker用Excel（.xlsx）を一気通貫で出力するアプリです。
 
-**GitHub へプッシュして Railway でサーバーを公開する手順**は [docs/デプロイ手順_GitHubとRailway.md](docs/デプロイ手順_GitHubとRailway.md) にまとめてあります（知識がなくても番号どおりに進められます）。
+- **今すぐやること（ターミナル不要）**: [docs/次のアクション_Railwayでサーバーを上げる.md](docs/次のアクション_Railwayでサーバーを上げる.md) — ブラウザだけの操作で、番号どおりに進められます。
+- **GitHub と Railway の全体手順**: [docs/デプロイ手順_GitHubとRailway.md](docs/デプロイ手順_GitHubとRailway.md)
 
 ## 起動方法
 

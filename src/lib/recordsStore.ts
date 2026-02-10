@@ -12,6 +12,10 @@ const DATA_DIR = process.env.DATA_DIR
 const CACHE_DIR = path.join(DATA_DIR, "cache");
 const RECORDS_FILE = path.join(DATA_DIR, "records.json");
 
+if (process.env.NODE_ENV !== "test") {
+  console.log("[recordsStore] DATA_DIR =", DATA_DIR, process.env.DATA_DIR ? "(from env)" : "(default, デプロイで消えます)");
+}
+
 export interface AttachmentSummary {
   pdfName?: string;
   interviewLogName?: string;
