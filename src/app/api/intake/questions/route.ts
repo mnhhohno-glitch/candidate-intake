@@ -41,10 +41,8 @@ function normalizeGoogleFormDefinition(parsed: unknown): GoogleFormDefinition {
     typeof o.form_metadata === "object" && o.form_metadata !== null && !Array.isArray(o.form_metadata)
       ? (o.form_metadata as Record<string, unknown>)
       : {};
-  let questions = o.questions;
-  if (!Array.isArray(questions)) {
-    questions = [];
-  }
+  const questionsRaw = o.questions;
+  const questions: unknown[] = Array.isArray(questionsRaw) ? questionsRaw : [];
   const normalizedQuestions: FormQuestion[] = questions.map((q, i) => {
     if (!q || typeof q !== "object") {
       return { id: `q${i + 1}`, title: "質問", required: false, type: "text" };
