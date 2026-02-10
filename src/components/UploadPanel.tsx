@@ -33,10 +33,13 @@ export function UploadPanel({
   files,
   onFilesChange,
   disabled,
+  showTitle = true,
 }: {
   files: UploadFiles;
   onFilesChange: (f: UploadFiles) => void;
   disabled?: boolean;
+  /** セクション見出し「2. ファイルをアップロード」を表示するか（登録ページでは false） */
+  showTitle?: boolean;
 }) {
   const [drag, setDrag] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -74,7 +77,9 @@ export function UploadPanel({
 
   return (
     <section className="rounded-lg border border-gray-300 bg-white p-4 shadow-sm">
-      <h2 className="mb-3 text-lg font-semibold">2. ファイルをアップロード</h2>
+      {showTitle && (
+        <h2 className="mb-3 text-lg font-semibold">2. ファイルをアップロード</h2>
+      )}
       <div
         className={`rounded border-2 border-dashed p-6 transition ${
           drag ? "border-blue-500 bg-blue-50" : "border-gray-300"
