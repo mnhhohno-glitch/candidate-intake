@@ -27,10 +27,34 @@ export async function POST(request: NextRequest) {
     const pdfFile = formData.get("pdf") as File | null;
     const interviewLogFile = formData.get("interviewLog") as File | null;
 
+    const pdfReceived = !!(pdfFile && pdfFile.size > 0 && pdfFile.type === "application/pdf");
+    if (!pdfReceived && pdfFile) {
+      console.warn("[hearing-question-text] PDF rejected: size=", pdfFile.size, "type=", pdfFile.type);
+    }
+
     let resumePdfText = "";
-    if (pdfFile && pdfFile.size > 0 && pdfFile.type === "application/pdf") {
+    if (pdfReceived && pdfFile) {
       const buf = Buffer.from(await pdfFile.arrayBuffer());
       resumePdfText = await extractTextFromPdf(buf);
+      if (resumePdfText.length === 0) {
+        console.error("[hearing-question-text] PDF extraction returned 0 characters. size=", buf.length);
+        return NextResponse.json(
+          {
+            error:
+              "PDFからテキストを抽出できませんでした。スキャン画像のみのPDFの場合はOCRが失敗している可能性があります。別のPDFをお試しください。",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (resumePdfText.length === 0) {
+      return NextResponse.json(
+        {
+          error: "PDFをアップロードし、テキストが抽出できるPDFをご利用ください。",
+        },
+        { status: 400 }
+      );
     }
 
     let interviewMemoText = "";
@@ -48,12 +72,31 @@ export async function POST(request: NextRequest) {
       interviewMemoText
     );
 
+    const systemLen = systemInstruction.length;
+    const userLen = userPrompt.length;
+    console.log(
+      "[hearing-question-text] Calling Gemini: job_type=",
+      jobType,
+      "systemInstructionChars=",
+      systemLen,
+      "userPromptChars=",
+      userLen,
+      "resumePdfChars=",
+      resumePdfText.length,
+      "interviewMemoChars=",
+      interviewMemoText.length
+    );
+    const startMs = Date.now();
+
     const raw = await generateWithGemini({
       systemInstruction,
       userPrompt,
       responseMimeType: "text/plain",
       maxOutputTokens: 8192,
     });
+
+    const elapsedMs = Date.now() - startMs;
+    console.log("[hearing-question-text] Gemini returned in", elapsedMs, "ms, outputLength=", (raw ?? "").length);
 
     let text = (raw ?? "").trim();
     if (text.startsWith("```")) {
