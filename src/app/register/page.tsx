@@ -41,7 +41,7 @@ export default function RegisterPage() {
     };
   }, [excelBlobUrl]);
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
     const idTrim = candidateNumber.trim();
@@ -58,11 +58,30 @@ export default function RegisterPage() {
       setFormError("キャリアアドバイザーを選択してください。");
       return;
     }
-    setRecord({
+    const newRecord: RegisteredRecord = {
       candidateId: idTrim,
       candidateName: nameTrim,
       careerAdvisor: careerAdvisor as CareerAdvisor,
-    });
+    };
+    try {
+      const res = await fetch("/api/records", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          candidateId: newRecord.candidateId,
+          candidateName: newRecord.candidateName,
+          careerAdvisor: newRecord.careerAdvisor,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "登録の保存に失敗しました");
+      }
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "登録の保存に失敗しました");
+      return;
+    }
+    setRecord(newRecord);
   };
 
   const runPipeline = useCallback(async () => {
@@ -129,6 +148,23 @@ export default function RegisterPage() {
       setExcelDownloadName(name);
       setExcelBlobUrl(url);
       setStep("done");
+
+      const attachmentSummary = {
+        pdfName: files.pdf?.name ?? undefined,
+        interviewLogName: files.interviewLog?.name ?? undefined,
+        flagListName: files.flagList?.name ?? undefined,
+      };
+      const cacheFormData = new FormData();
+      cacheFormData.append("attachmentSummary", JSON.stringify(attachmentSummary));
+      cacheFormData.append("excel", blob, name);
+      try {
+        await fetch(`/api/records/${encodeURIComponent(record.candidateId)}/cache`, {
+          method: "POST",
+          body: cacheFormData,
+        });
+      } catch (cacheErr) {
+        console.warn("Cache save failed:", cacheErr);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "不明なエラー");
       setStep("error");

@@ -10,6 +10,9 @@ coverage
 .next/
 out/
 
+# data (cache / records - ephemeral on deploy)
+data/
+
 # misc
 .DS_Store
 *.pem
