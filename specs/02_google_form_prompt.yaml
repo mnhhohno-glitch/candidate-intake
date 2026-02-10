@@ -22,7 +22,7 @@ output_structure:
   questions:
     - id: "一意のID（例: q1, q2）"
       title: "質問文"
-      required: true | false
+      required: "true または false"
       type: "text | multiple_choice | checkbox | date | number など"
       options: "選択式の場合のみ。文字列配列"
 

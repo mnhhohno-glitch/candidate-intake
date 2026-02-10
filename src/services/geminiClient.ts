@@ -30,8 +30,8 @@ export async function generateWithGemini(params: GeminiGenerateParams): Promise<
       },
     ],
     generationConfig: {
-      temperature: 0.3,
-      maxOutputTokens: params.maxOutputTokens ?? 8192,
+      temperature: 0.2,
+      maxOutputTokens: params.maxOutputTokens ?? 32768,
       responseMimeType: params.responseMimeType ?? "application/json",
       ...(params.responseSchema && { responseSchema: params.responseSchema }),
     },
@@ -74,7 +74,7 @@ export async function generateWithGemini(params: GeminiGenerateParams): Promise<
 }
 
 /**
- * JSON応答をパース。マークダウンコードブロックを除去してからパース
+ * JSON応答をパース。マークダウンコードブロック・前後の説明文を除去してパース
  */
 export function parseJsonResponse<T = unknown>(raw: string): T {
   let cleaned = raw.trim();
@@ -82,5 +82,15 @@ export function parseJsonResponse<T = unknown>(raw: string): T {
   if (codeBlockMatch) {
     cleaned = codeBlockMatch[1].trim();
   }
-  return JSON.parse(cleaned) as T;
+  try {
+    return JSON.parse(cleaned) as T;
+  } catch {
+    const firstBrace = cleaned.indexOf("{");
+    const lastBrace = cleaned.lastIndexOf("}");
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      const slice = cleaned.slice(firstBrace, lastBrace + 1);
+      return JSON.parse(slice) as T;
+    }
+    throw new Error("Response is not valid JSON");
+  }
 }

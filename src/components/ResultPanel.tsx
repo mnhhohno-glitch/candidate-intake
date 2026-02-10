@@ -24,12 +24,29 @@ export function ResultPanel({
 
   return (
     <section className="rounded-lg border border-gray-300 bg-white p-4 shadow-sm">
-      <h2 className="mb-3 text-lg font-semibold">2. 結果</h2>
+      <h2 className="mb-3 text-lg font-semibold">3. 結果</h2>
 
       {error && (
         <div className="mb-3 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800">
           {error}
         </div>
+      )}
+
+      {commonAnalysis && "_debug" in commonAnalysis && typeof (commonAnalysis as { _debug?: { pdfChars: number; interviewChars: number; flagListChars: number; geminiTimeMs: number } })._debug === "object" && (
+        <>
+          <div className="mb-3 rounded border border-green-200 bg-green-50 p-2 text-xs text-gray-800">
+            <span className="font-medium">Geminiが読み込んだ内容：</span>
+            PDF {(commonAnalysis as { _debug: { pdfChars: number } })._debug.pdfChars}文字、
+            面談メモ {(commonAnalysis as { _debug: { interviewChars: number } })._debug.interviewChars}文字、
+            フラグリスト {(commonAnalysis as { _debug: { flagListChars: number } })._debug.flagListChars}文字
+            （共通解析の処理時間: {((commonAnalysis as { _debug: { geminiTimeMs: number } })._debug.geminiTimeMs / 1000).toFixed(1)}秒）
+          </div>
+          {(commonAnalysis as { _debug: { pdfChars: number } })._debug.pdfChars === 0 && (
+            <div className="mb-3 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+              ※PDFからテキストが抽出されていません（0文字）。スキャンPDF・画像のみのPDFはテキストが取れません。選択可能なテキストを含むWeb履歴書PDFをご利用ください。その場合、リスト・ExcelのPDF由来の項目（経歴・学歴など）が空になりやすくなります。
+            </div>
+          )}
+        </>
       )}
 
       <div className="space-y-3 text-sm">

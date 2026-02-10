@@ -46,9 +46,14 @@ prompt: |
       - 1行目に列名、2行目以降にデータ行。列の追加・削除は禁止
 
   mapping_policy:
-    source_of_truth: filemaker_mapping を最優先。必要な列が無い場合は extracted_facts から根拠があるときのみ補完。
+    source_of_truth: filemaker_mapping を最優先。filemaker_mapping に存在するキーは、対応する列に必ずその値を出力すること。欠落させない。
+    fill_rules:
+      - filemaker_mapping に含まれる列名はすべて、その値を1行目データに出力する。空白（null）にしない
+      - フラグ列（〇〇フラグ）に値がある場合、対応するメモ列（〇〇メモ）も filemaker_mapping にキーがあれば必ずその値を出力する。メモ列を省略しない
+      - filemaker_mapping に無い列は extracted_facts から対応する根拠があれば補完する
+      - null にしてよいのは、filemaker_mapping にも extracted_facts にも該当する根拠が無い列および missing_items に明示された項目のみ
     strict_rules:
-      - 値の採用は意味の完全一致のみ。曖昧なら null
+      - 値の採用は意味の完全一致のみ。曖昧な推測は禁止
       - missing_items に含まれる項目は null のまま
 
   sheets:
@@ -119,8 +124,12 @@ prompt: |
         - 初回面談まとめ
         - インポート用照合キー
       input_rules:
-        - 現在応募求人数が不明な場合は 0（数値）
-        - インポート用照合キーは 求職者NO（7桁）を数値として+1した値を値として出力
+        - 1行目に列名、2行目にデータを入力
+        - 現在応募求人数が不明な場合は 0（数値）。範囲の場合は上限値を入力
+        - 卒業年月は「YYYY年3月 卒業」形式
+        - 日付は「YYYY/MM/DD」、時刻は「HH:MM」
+        - 記載がない項目は空欄（null）可
+        - インポート用照合キーは 求職者NO（7桁）を数値として+1した値を出力。求職者NOは extracted_facts.candidate_no（ファイル名由来）のみ使用する
     職歴情報シート:
       columns:
         - 求職者NO
@@ -136,7 +145,9 @@ prompt: |
         - 退職理由_小
         - 転職理由メモ
       input_rules:
-        - 在籍順に1から連番（何社目）。求職者NOは extracted_facts.candidate_no のみ使用
+        - 在籍順に1から連番（何社目）。求職者NOは extracted_facts.candidate_no のみ使用（PDFファイル名由来）
+        - 職種フラグはフラグリストの「職種リスト」から選択（複数可）
+        - 退職理由_大・中・小はフラグリストの「カテゴリ_大」「カテゴリ_中」「カテゴリ_小」（退職理由カテゴリ）から各1つ選択
 
   output:
     format: json
@@ -150,4 +161,6 @@ prompt: |
 
   final_instruction: >
     出力は excel_files に従ったJSONのみとし、説明文・補足・前置き・コメントは一切含めない。
-    欠損値は null とし、文字列 "null" を出力しない。指定されていない列・キーを追加しない。
+    基本情報シートは必ず1行以上のデータ行を持つこと。common_analysis_json.filemaker_mapping に存在するキーは、すべて基本情報シートの「同じ名前の列」にその値を出力すること。1つも省略して null にしない。インポート用照合キーは求職者NO（7桁）を数値にし+1した値とすること（例: 5000082 → 5000083）。
+    職歴情報シートは common_analysis_json.extracted_facts.work_history の要素数と同数のデータ行を出力すること。1社ごとに1行。行が0件の場合は work_history が空のときのみ可。
+    基本情報シート・職歴情報シートとも columns の順序を厳守し、各行の配列はその順で値を並べること。本当に根拠が無い列のみ null とする。文字列 "null" は出力しない。指定されていない列・キーを追加しない。

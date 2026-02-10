@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { generateWithGemini, parseJsonResponse } from "@/services/geminiClient";
 import { buildFilemakerExcelPrompt } from "@/services/loadSpec";
 import { buildXlsxBuffer } from "@/services/excelBuilder";
+import { applyFilemakerBackfill, applyWorkHistoryBackfill } from "@/services/excelBackfill";
 import type { ExcelFilesOutput } from "@/types/excelExport";
 import type { CommonAnalysisJson } from "@/types/commonAnalysis";
 
@@ -37,6 +38,8 @@ export async function POST(request: NextRequest) {
 
     const { systemInstruction, userPrompt } = buildFilemakerExcelPrompt(commonAnalysisJson);
 
+    const excelStart = Date.now();
+    console.log("[intake/excel] Calling Gemini (excel_files JSON)...");
     let lastError: Error | null = null;
     let parsed: unknown = null;
 
@@ -59,6 +62,7 @@ export async function POST(request: NextRequest) {
         }
 
         if (hasValidExcelFiles(parsed)) {
+          console.log(`[intake/excel] Gemini done in ${Date.now() - excelStart}ms`);
           break;
         }
         lastError = new Error("Invalid excel_files structure");
@@ -74,9 +78,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const mappingKeys = Object.keys(commonAnalysisJson?.filemaker_mapping ?? {}).length;
+    const workHistory = commonAnalysisJson?.extracted_facts?.work_history;
+    const workHistoryLen = Array.isArray(workHistory) ? workHistory.length : 0;
+    console.log(
+      `[intake/excel] Applying backfill: filemaker_mapping keys=${mappingKeys}, work_history rows=${workHistoryLen}`
+    );
+    if (workHistoryLen === 0) {
+      console.warn(
+        "[intake/excel] work_history is empty — 職歴情報シート will have header only. Check common_analysis (01) prompt and 面談メモ/PDF for 職歴 content."
+      );
+    }
+    applyFilemakerBackfill(parsed, commonAnalysisJson);
+    applyWorkHistoryBackfill(parsed, commonAnalysisJson);
+
     const buffer = await buildXlsxBuffer(parsed);
     const baseName = getCandidateName(commonAnalysisJson);
-    const filename = `FileMaker用_${baseName}.xlsx`;
+    const filename = `基本情報シート_${baseName}.xlsx`;
 
     return new NextResponse(new Uint8Array(buffer), {
       status: 200,

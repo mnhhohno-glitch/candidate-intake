@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 export interface UploadFiles {
   pdf: File | null;
@@ -8,11 +8,26 @@ export interface UploadFiles {
   flagList: File | null;
 }
 
-const ACCEPT = {
-  pdf: ".pdf,application/pdf",
-  text: ".txt,text/plain",
-  xlsx: ".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-};
+const ACCEPT_ALL =
+  ".pdf,application/pdf,.txt,text/plain,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+function categorizeFiles(fileList: FileList | null): UploadFiles {
+  const result: UploadFiles = { pdf: null, interviewLog: null, flagList: null };
+  if (!fileList || fileList.length === 0) return result;
+  for (let i = 0; i < fileList.length; i++) {
+    const file = fileList[i];
+    const name = file.name.toLowerCase();
+    const type = file.type;
+    if (!result.pdf && (type === "application/pdf" || name.endsWith(".pdf"))) {
+      result.pdf = file;
+    } else if (!result.interviewLog && (type === "text/plain" || name.endsWith(".txt"))) {
+      result.interviewLog = file;
+    } else if (!result.flagList && (type.includes("sheet") || name.endsWith(".xlsx"))) {
+      result.flagList = file;
+    }
+  }
+  return result;
+}
 
 export function UploadPanel({
   files,
@@ -23,107 +38,94 @@ export function UploadPanel({
   onFilesChange: (f: UploadFiles) => void;
   disabled?: boolean;
 }) {
-  const [drag, setDrag] = useState<"pdf" | "interview" | "flag" | null>(null);
+  const [drag, setDrag] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const setPdf = useCallback(
-    (file: File | null) => onFilesChange({ ...files, pdf: file }),
-    [files, onFilesChange]
-  );
-  const setInterview = useCallback(
-    (file: File | null) => onFilesChange({ ...files, interviewLog: file }),
-    [files, onFilesChange]
-  );
-  const setFlag = useCallback(
-    (file: File | null) => onFilesChange({ ...files, flagList: file }),
-    [files, onFilesChange]
+  const applyFiles = useCallback(
+    (fileList: FileList | null) => {
+      const next = categorizeFiles(fileList);
+      onFilesChange(next);
+    },
+    [onFilesChange]
   );
 
   const handleDrop = useCallback(
-    (e: React.DragEvent, kind: "pdf" | "interview" | "flag") => {
+    (e: React.DragEvent) => {
       e.preventDefault();
-      setDrag(null);
-      const file = e.dataTransfer.files[0];
-      if (!file) return;
-      if (kind === "pdf" && file.type === "application/pdf") setPdf(file);
-      if (kind === "interview" && (file.type === "text/plain" || file.name.endsWith(".txt"))) setInterview(file);
-      if (kind === "flag" && (file.type.includes("sheet") || file.name.endsWith(".xlsx"))) setFlag(file);
+      setDrag(false);
+      if (disabled) return;
+      applyFiles(e.dataTransfer.files);
     },
-    [setPdf, setInterview, setFlag]
+    [disabled, applyFiles]
   );
 
   const handleFileInput = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>, kind: "pdf" | "interview" | "flag") => {
-      const file = e.target.files?.[0] ?? null;
-      if (kind === "pdf") setPdf(file);
-      if (kind === "interview") setInterview(file);
-      if (kind === "flag") setFlag(file);
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      applyFiles(e.target.files);
+      e.target.value = "";
     },
-    [setPdf, setInterview, setFlag]
+    [applyFiles]
   );
+
+  const handleClick = useCallback(() => {
+    if (disabled) return;
+    inputRef.current?.click();
+  }, [disabled]);
 
   return (
     <section className="rounded-lg border border-gray-300 bg-white p-4 shadow-sm">
-      <h2 className="mb-3 text-lg font-semibold">1. ファイルをアップロード</h2>
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div
-          className={`rounded border-2 border-dashed p-4 transition ${drag === "pdf" ? "border-blue-500 bg-blue-50" : "border-gray-300"}`}
-          onDragOver={(e) => {
+      <h2 className="mb-3 text-lg font-semibold">2. ファイルをアップロード</h2>
+      <div
+        className={`rounded border-2 border-dashed p-6 transition ${
+          drag ? "border-blue-500 bg-blue-50" : "border-gray-300"
+        } ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+        onDragOver={(e) => {
+          e.preventDefault();
+          if (!disabled) setDrag(true);
+        }}
+        onDragLeave={() => setDrag(false)}
+        onDrop={handleDrop}
+        onClick={handleClick}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            setDrag("pdf");
-          }}
-          onDragLeave={() => setDrag(null)}
-          onDrop={(e) => handleDrop(e, "pdf")}
-        >
-          <p className="mb-2 text-sm font-medium text-gray-700">履歴書 PDF</p>
-          <input
-            type="file"
-            accept={ACCEPT.pdf}
-            disabled={disabled}
-            className="mb-2 block w-full text-sm"
-            onChange={(e) => handleFileInput(e, "pdf")}
-          />
-          {files.pdf && <p className="truncate text-xs text-gray-600">{files.pdf.name}</p>}
-        </div>
-        <div
-          className={`rounded border-2 border-dashed p-4 transition ${drag === "interview" ? "border-blue-500 bg-blue-50" : "border-gray-300"}`}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDrag("interview");
-          }}
-          onDragLeave={() => setDrag(null)}
-          onDrop={(e) => handleDrop(e, "interview")}
-        >
-          <p className="mb-2 text-sm font-medium text-gray-700">面談ログ .txt</p>
-          <input
-            type="file"
-            accept={ACCEPT.text}
-            disabled={disabled}
-            className="mb-2 block w-full text-sm"
-            onChange={(e) => handleFileInput(e, "interview")}
-          />
-          {files.interviewLog && <p className="truncate text-xs text-gray-600">{files.interviewLog.name}</p>}
-        </div>
-        <div
-          className={`rounded border-2 border-dashed p-4 transition ${drag === "flag" ? "border-blue-500 bg-blue-50" : "border-gray-300"}`}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDrag("flag");
-          }}
-          onDragLeave={() => setDrag(null)}
-          onDrop={(e) => handleDrop(e, "flag")}
-        >
-          <p className="mb-2 text-sm font-medium text-gray-700">フラグリスト .xlsx</p>
-          <input
-            type="file"
-            accept={ACCEPT.xlsx}
-            disabled={disabled}
-            className="mb-2 block w-full text-sm"
-            onChange={(e) => handleFileInput(e, "flag")}
-          />
-          {files.flagList && <p className="truncate text-xs text-gray-600">{files.flagList.name}</p>}
-        </div>
+            handleClick();
+          }
+        }}
+        role="button"
+        tabIndex={disabled ? -1 : 0}
+        aria-label="ファイルを選択またはドロップ"
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          accept={ACCEPT_ALL}
+          multiple
+          disabled={disabled}
+          className="sr-only"
+          onChange={handleFileInput}
+        />
+        <p className="mb-1 text-sm font-medium text-gray-700">
+          ここにファイルをドラッグ＆ドロップ、またはクリックして選択
+        </p>
+        <p className="text-xs text-gray-500">
+          履歴書PDF・面談ログ（.txt）・フラグリスト（.xlsx）をまとめて選べます。いずれか1つ以上必要です。
+        </p>
       </div>
-      <p className="mt-2 text-xs text-gray-500">いずれか1つ以上を投入してください。</p>
+      <div className="mt-3 space-y-1 text-sm text-gray-600">
+        <p>
+          <span className="font-medium">履歴書 PDF:</span>{" "}
+          {files.pdf ? files.pdf.name : "未選択"}
+        </p>
+        <p>
+          <span className="font-medium">面談ログ .txt:</span>{" "}
+          {files.interviewLog ? files.interviewLog.name : "未選択"}
+        </p>
+        <p>
+          <span className="font-medium">フラグリスト .xlsx:</span>{" "}
+          {files.flagList ? files.flagList.name : "未選択"}
+        </p>
+      </div>
     </section>
   );
 }

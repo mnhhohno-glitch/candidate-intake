@@ -4,12 +4,26 @@ import yaml from "js-yaml";
 
 const SPECS_DIR = path.join(process.cwd(), "specs");
 
+function loadYamlSafe<T>(filename: string): T {
+  const filePath = path.join(SPECS_DIR, filename);
+  try {
+    const raw = fs.readFileSync(filePath, "utf8");
+    return yaml.load(raw) as T;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`specs/${filename} の読み込みに失敗しました: ${msg}`);
+  }
+}
+
 export type Spec01 = {
   role?: string;
   tone?: string;
   absolute_rules?: string[];
   output_structure?: unknown;
   input_sections?: { name: string; description: string }[];
+  basic_info_sheet_columns?: string[];
+  work_history_sheet_columns?: string[];
+  input_rules?: string[];
   procedure?: string;
   final_instruction?: string;
 };
@@ -28,15 +42,16 @@ export type Spec03 = {
 };
 
 /**
- * 01 共通解析プロンプトを読み、Gemini用の systemInstruction と userPrompt を組み立てる
+ * 01 共通解析プロンプトを読み、Gemini用の systemInstruction と userPrompt を組み立てる。
+ * pdfFileName を渡した場合、求職者NOはファイル名からのみ抽出する旨を明示する（正本プロンプト準拠）。
  */
 export function buildCommonAnalysisPrompt(
   pdfText: string,
   interviewLog: string,
-  flagListText: string
+  flagListText: string,
+  pdfFileName?: string | null
 ): { systemInstruction: string; userPrompt: string } {
-  const raw = fs.readFileSync(path.join(SPECS_DIR, "01_common_analysis_prompt.yaml"), "utf8");
-  const spec = yaml.load(raw) as Spec01;
+  const spec = loadYamlSafe<Spec01>("01_common_analysis_prompt.yaml");
 
   const role = spec.role ?? "";
   const tone = spec.tone ?? "";
@@ -46,18 +61,40 @@ export function buildCommonAnalysisPrompt(
 
   const systemInstruction = `${role}\n\ntone: ${tone}\n\nabsolute_rules:\n  - ${rules}\n\nprocedure:\n${procedure}\n\n${finalInstruction}`;
 
-  const userPrompt = `以下3つの入力ブロックを解析し、共通解析JSON（extracted_facts, filemaker_mapping, missing_items）を出力してください。
+  const filenameBlock =
+    pdfFileName && pdfFileName.trim()
+      ? `
 
-【PDFテキスト（履歴書・登録シート等）】
-${pdfText || "(なし)"}
+【重要】求職者NOについて
+・Web履歴書PDFのファイル名: ${pdfFileName}
+・extracted_facts.candidate_no には、上記ファイル名に含まれる「5から始まる7桁の数字」のみを設定すること。
+・面談メモやPDF本文内の番号は求職者NOとして使用しないでください。`
+      : "";
 
-【面談ログ・面談メモ】
+  const basicColumns = (spec.basic_info_sheet_columns ?? []).join("、");
+  const inputRulesBlock =
+    Array.isArray(spec.input_rules) && spec.input_rules.length > 0
+      ? `\n【出力時のルール】\n${spec.input_rules.map((r) => `・${r}`).join("\n")}\n`
+      : "";
+
+  const userPrompt = `【タスク】添付3つのファイル（面談の通話文字起こしメモ・Web履歴書PDF・フラグリスト）をすべて読み取り、必要な情報をフラグリストの形式に合わせて書き出してください。filemaker_mapping のキーは「基本情報シートの列名」と完全一致させること。表記が1文字でも違うとExcelに反映されません。フラグ列の値はフラグリストに記載されている選択肢の文言をそのまま使ってください。
+
+【基本情報シートの列名（filemaker_mapping のキーはこのいずれかと完全一致させること）】
+${basicColumns}
+${inputRulesBlock}
+以下は3つの資料の全文です。面談メモ・PDF・フラグリストをそれぞれ個別に解析し、すべて最初から最後まで読んだうえで、記載がある項目を漏れなく filemaker_mapping に追加し、メモ列には要約を書いてください。確認用ステップで漏れがないか見直したうえで出力してください。
+${filenameBlock}
+
+【面談の通話文字起こしメモ（会話内容の文字起こし）】
 ${interviewLog || "(なし)"}
 
-【フラグリスト】
+【Web履歴書（PDFから抽出した本文）】
+${pdfText || "(なし)"}
+
+【フラグリスト（シート「リスト」。フラグ列の値はここに記載されている文言をそのままコピーすること）】
 ${flagListText || "(なし)"}
 
-上記以外を参照せず、記載がある事実のみを抽出してください。出力はJSONのみ。`;
+上記3つをすべて読み、言及がある列は上記の列名のどれかと完全一致するキーで filemaker_mapping に追加すること。フラグはフラグリストの表記をそのまま使うこと。出力はJSONのみ。`;
   return { systemInstruction, userPrompt };
 }
 
@@ -68,8 +105,7 @@ export function buildGoogleFormPrompt(commonAnalysisJson: unknown): {
   systemInstruction: string;
   userPrompt: string;
 } {
-  const raw = fs.readFileSync(path.join(SPECS_DIR, "02_google_form_prompt.yaml"), "utf8");
-  const spec = yaml.load(raw) as Spec02;
+  const spec = loadYamlSafe<Spec02>("02_google_form_prompt.yaml");
 
   const role = spec.role ?? "";
   const tone = spec.tone ?? "";
@@ -92,8 +128,7 @@ export function buildFilemakerExcelPrompt(commonAnalysisJson: unknown): {
   systemInstruction: string;
   userPrompt: string;
 } {
-  const raw = fs.readFileSync(path.join(SPECS_DIR, "03_filemaker_excel_prompt.yaml"), "utf8");
-  const spec = yaml.load(raw) as Spec03;
+  const spec = loadYamlSafe<Spec03>("03_filemaker_excel_prompt.yaml");
   const fullPrompt = spec.prompt ?? "";
 
   const systemInstruction = fullPrompt;
