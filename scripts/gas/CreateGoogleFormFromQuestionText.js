@@ -153,6 +153,7 @@ function parseQualificationLines(block) {
 
 /**
  * POST で受け取った JSON をパースしてフォームを作成し、URL を返す。
+ * 例外時も必ず JSON で返し、Next.js 側で 502 の原因を特定しやすくする。
  */
 function doPost(e) {
   var result = { error: null, formId: null, responseUrl: null, editUrl: null };
@@ -185,20 +186,30 @@ function doPost(e) {
     return createJsonResponse(result, 400);
   }
 
+  try {
+    return doCreateForm(candidateId, candidateName, questionText, result);
+  } catch (err) {
+    var errMsg = err && err.message ? err.message : String(err);
+    result.error = "フォーム作成中にエラーが発生しました: " + errMsg;
+    return createJsonResponse(result, 500);
+  }
+}
+
+/**
+ * フォーム実体を作成し、result に URL を詰めて返す。
+ */
+function doCreateForm(candidateId, candidateName, questionText, result) {
   var blocks = parseQuestionBlocks(questionText);
-  // タイトル：求職者NOは表示しない。氏名に様を付与。
   var formTitle = (candidateName || "候補者") + "様_質問フォーム";
 
   var form = FormApp.create(formTitle);
   form.setDescription("候補者向けヒアリングフォーム（Candidate Intake から作成）");
-  // スマホ・社外でログイン不要で開けるよう、回答にログインを必須にしない
   form.setRequireLogin(false);
 
   for (var i = 0; i < blocks.length; i++) {
     var block = blocks[i];
 
     if (isPhotoBlock(block)) {
-      // 写真データの提出：ラジオボタン（単一選択）
       var photoItem = form.addMultipleChoiceItem();
       photoItem.setTitle(block);
       photoItem.setChoiceValues(PHOTO_OPTIONS);
@@ -258,7 +269,6 @@ function doPost(e) {
   var spreadsheet = SpreadsheetApp.create("回答_" + formTitle);
   form.setDestination(FormApp.DestinationType.SPREADSHEET, spreadsheet.getId());
 
-  // スマホ・社外などから回答URLで開けるよう、フォームを「リンクを知っている全員が閲覧可能」に共有
   var formFile = DriveApp.getFileById(form.getId());
   formFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
 

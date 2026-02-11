@@ -57,20 +57,47 @@ export async function POST(request: NextRequest) {
       token: GAS_INVOKE_TOKEN,
     };
 
-    const gasRes = await fetch(GAS_WEB_APP_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 90_000); // 90秒でタイムアウト
+    let gasRes: Response;
+    try {
+      gasRes = await fetch(GAS_WEB_APP_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } catch (fetchErr) {
+      clearTimeout(timeoutId);
+      const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+      console.error("[create-google-form] GAS fetch failed:", msg);
+      const isTimeout = msg.includes("abort") || msg.includes("timeout");
+      return NextResponse.json(
+        {
+          error: isTimeout
+            ? "Googleフォーム作成の呼び出しがタイムアウトしました。GASの実行時間を確認してください。"
+            : "GASへの接続に失敗しました。GAS_WEB_APP_URL とネットワークを確認してください。",
+        },
+        { status: 502 }
+      );
+    }
+    clearTimeout(timeoutId);
 
     const raw = await gasRes.text();
     let data: { formId?: string; responseUrl?: string; editUrl?: string; error?: string };
     try {
       data = JSON.parse(raw) as typeof data;
     } catch {
-      console.error("[create-google-form] GAS response not JSON:", raw.slice(0, 300));
+      console.error(
+        "[create-google-form] GAS response not JSON. status=%s body=%s",
+        gasRes.status,
+        raw.slice(0, 500)
+      );
       return NextResponse.json(
-        { error: "Googleフォームの作成に失敗しました。GASの応答形式を確認してください。" },
+        {
+          error:
+            "Googleフォームの作成に失敗しました。GASがHTMLやエラーページを返しています。GASのデプロイURL・実行ログを確認してください。",
+        },
         { status: 502 }
       );
     }
