@@ -5,22 +5,56 @@ const MIN_TEXT_LENGTH_BEFORE_OCR = 20;
 
 /**
  * PDFのBufferからテキストを抽出（Nodeのみ）。
- * まずpdf-parseでテキストレイヤーを取得。0文字（または極端に短い）かつページがある場合はOCRで再試行。
+ * 1) pdf-parse でテキストレイヤー取得
+ * 2) 0文字または極端に短い場合、pdfjs-dist でテキスト抽出を再試行（システムDL PDFなどで有効）
+ * 3) まだ短い場合は OCR フォールバック
  */
 export async function extractTextFromPdf(buffer: Buffer): Promise<string> {
   const len = buffer?.length ?? 0;
   try {
-    const mod = await import("pdf-parse");
-    const pdfParse = (mod as { default?: (b: Buffer) => Promise<{ text?: string; numpages?: number }> }).default ?? mod;
-    const data = await (pdfParse as (b: Buffer) => Promise<{ text?: string; numpages?: number }>)(buffer);
-    let text = typeof data?.text === "string" ? data.text.trim() : "";
-    const numpages = typeof data?.numpages === "number" ? data.numpages : 0;
-    if (process.env.NODE_ENV !== "test") {
-      console.log(`[extractText] PDF: buffer=${len} bytes, pages=${numpages}, extracted=${text.length} chars`);
+    let text = "";
+    let numpages = 0;
+
+    // 1) pdf-parse
+    try {
+      const mod = await import("pdf-parse");
+      const pdfParse = (mod as { default?: (b: Buffer) => Promise<{ text?: string; numpages?: number }> }).default ?? mod;
+      const data = await (pdfParse as (b: Buffer) => Promise<{ text?: string; numpages?: number }>)(buffer);
+      text = typeof data?.text === "string" ? data.text.trim() : "";
+      numpages = typeof data?.numpages === "number" ? data.numpages : 0;
+    } catch (parseErr) {
+      const msg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+      if (process.env.NODE_ENV !== "test") {
+        console.warn("[extractText] pdf-parse failed:", msg);
+      }
     }
+
+    if (process.env.NODE_ENV !== "test") {
+      console.log(`[extractText] PDF: buffer=${len} bytes, pages=${numpages}, pdf-parse extracted=${text.length} chars`);
+    }
+
+    // 2) 短い場合に pdfjs-dist でテキスト抽出を試行（システムDL PDF 等で有効）
+    if (text.length < MIN_TEXT_LENGTH_BEFORE_OCR && len > 0) {
+      if (process.env.NODE_ENV !== "test") {
+        console.log("[extractText] Trying pdfjs-dist text extraction fallback...");
+      }
+      const { extractTextFromPdfWithPdfJsFull } = await import("./extractTextPdfJs");
+      const pdfJsResult = await extractTextFromPdfWithPdfJsFull(buffer);
+      if (pdfJsResult.text.length > text.length) {
+        text = pdfJsResult.text;
+        if (process.env.NODE_ENV !== "test") {
+          console.log("[extractText] pdfjs-dist fallback succeeded, chars:", text.length);
+        }
+      }
+      if (pdfJsResult.numPages > 0 && numpages === 0) {
+        numpages = pdfJsResult.numPages;
+      }
+    }
+
+    // 3) まだ短い場合に OCR
     if (text.length < MIN_TEXT_LENGTH_BEFORE_OCR && numpages > 0) {
       if (process.env.NODE_ENV !== "test") {
-        console.log("[extractText] Text too short, trying OCR fallback...");
+        console.log("[extractText] Text still short, trying OCR fallback...");
       }
       const { extractTextFromPdfWithOcr } = await import("./extractTextPdfOcr");
       const ocrText = await extractTextFromPdfWithOcr(buffer);
@@ -31,10 +65,11 @@ export async function extractTextFromPdf(buffer: Buffer): Promise<string> {
         }
       } else if (text.length === 0 && process.env.NODE_ENV !== "test") {
         console.warn(
-          "[extractText] PDF returned 0 characters; OCR did not add text. PDF may be image-only (scanned)."
+          "[extractText] PDF returned 0 characters; pdfjs and OCR did not add text. PDF may be image-only (scanned)."
         );
       }
     }
+
     return text;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
