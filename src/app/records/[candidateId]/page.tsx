@@ -202,6 +202,7 @@ export default function RecordDetailPage() {
       const formData = new FormData();
       formData.append("job_type", jobTypeTrim);
       formData.append("achievement_category", achievementCategory);
+      if (record?.candidateName) formData.append("candidate_name", record.candidateName);
       formData.append("pdf", files.pdf);
       if (files.interviewLog) formData.append("interviewLog", files.interviewLog);
       const res = await fetch("/api/intake/hearing-question-text", {
@@ -220,7 +221,7 @@ export default function RecordDetailPage() {
     } finally {
       setQuestionGenLoading(false);
     }
-  }, [jobType, achievementCategory, files.pdf, files.interviewLog]);
+  }, [jobType, achievementCategory, record?.candidateName, files.pdf, files.interviewLog]);
 
   const handleCopyQuestionText = useCallback(() => {
     if (!questionText) return;

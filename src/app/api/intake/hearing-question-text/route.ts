@@ -348,11 +348,21 @@ export async function POST(request: NextRequest) {
       text = JOB_TYPE_UNSPECIFIED_OUTPUT;
     }
 
+    const candidateNameRaw = formData.get("candidate_name");
+    const candidateName = typeof candidateNameRaw === "string" ? candidateNameRaw.trim() : "";
+    const header =
+      candidateName !== ""
+        ? `${candidateName}様\n\nお世話になっております。\n\n応募書類を作成するにあたり追加でいただきたい情報を以下の通りお送りいたします。\n質問内容につきましてわかる範囲で構いませんのでご記入頂けますと幸いです。`
+        : "○○様（求職者名挿入）\n\nお世話になっております。\n\n応募書類を作成するにあたり追加でいただきたい情報を以下の通りお送りいたします。\n質問内容につきましてわかる範囲で構いませんのでご記入頂けますと幸いです。";
+    const footer =
+      "\n\n以上となります。\n質問項目が多く申し訳ございませんがご回答のほどよろしくお願いいたします。";
+    const wrapped = `${header}\n\n${text}${footer}`;
+
     const totalLatencyMs = Date.now() - totalStartMs;
     console.log("[hearing-question-text] total latency_ms=", totalLatencyMs, "retry_count=", retryCount);
 
     return NextResponse.json({
-      candidate_question_text_only: text,
+      candidate_question_text_only: wrapped,
     });
   } catch (e) {
     console.error("[api/intake/hearing-question-text] error:", e);
