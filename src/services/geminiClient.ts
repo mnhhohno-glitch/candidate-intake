@@ -90,12 +90,18 @@ async function generateWithGeminiInternal(requestBody: ReturnType<typeof buildRe
   const data = (await response.json()) as {
     candidates?: Array<{
       content?: { parts?: Array<{ text?: string }> };
+      finishReason?: string;
     }>;
+    promptFeedback?: { blockReason?: string; blockReasonMessage?: string };
   };
 
   const candidates = data.candidates;
   if (!candidates || candidates.length === 0) {
-    throw new Error("No response from Gemini");
+    const blockReason = data.promptFeedback?.blockReason ?? "UNSPECIFIED";
+    const blockMsg = data.promptFeedback?.blockReasonMessage ?? "";
+    const detail = blockMsg ? `${blockReason}: ${blockMsg}` : blockReason;
+    console.error("[Gemini] Empty candidates. promptFeedback:", JSON.stringify(data.promptFeedback));
+    throw new Error(`No response from Gemini (${detail})`);
   }
 
   const content = candidates[0].content;

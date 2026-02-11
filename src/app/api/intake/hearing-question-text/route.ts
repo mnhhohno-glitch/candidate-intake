@@ -119,11 +119,15 @@ export async function POST(request: NextRequest) {
     if (pdfReceived && pdfFile) {
       const buf = Buffer.from(await pdfFile.arrayBuffer());
       const extractStartMs = Date.now();
-      try {
-        const images = await renderPdfToPngBase64List(buf, 10);
-        if (images.length > 0) {
-          const pageTexts: string[] = [];
-          for (let i = 0; i < images.length; i++) {
+      let lastExtractError: Error | null = null;
+
+      // 1) PDF→画像→Gemini Vision で抽出。失敗時は 2) PDF インラインで再試行
+      const images = await renderPdfToPngBase64List(buf, 10);
+      if (images.length > 0) {
+        const pageTexts: string[] = [];
+        let visionOk = true;
+        for (let i = 0; i < images.length; i++) {
+          try {
             const pageText = await generateWithGeminiWithImage({
               systemInstruction: PDF_EXTRACT_SYSTEM,
               userPrompt: PDF_EXTRACT_USER,
@@ -133,18 +137,29 @@ export async function POST(request: NextRequest) {
               temperature: 0.1,
             });
             pageTexts.push((pageText ?? "").trim());
+          } catch (e) {
+            lastExtractError = e instanceof Error ? e : new Error(String(e));
+            console.warn("[hearing-question-text] Gemini Vision page", i + 1, "failed:", lastExtractError.message);
+            visionOk = false;
+            break;
           }
+        }
+        if (pageTexts.length > 0) {
           resumePdfText = pageTexts.join("\n\n").trim();
           console.log(
             "[hearing-question-text] Gemini Vision extract (pages=",
-            images.length,
+            pageTexts.length,
+            visionOk ? "" : " partial",
             ") done in",
             Date.now() - extractStartMs,
             "ms, chars=",
             resumePdfText.length
           );
         }
-        if (resumePdfText.length === 0) {
+      }
+
+      if (resumePdfText.length === 0) {
+        try {
           const pdfBase64 = buf.toString("base64");
           resumePdfText = await generateWithGeminiWithPdf({
             systemInstruction: PDF_EXTRACT_SYSTEM,
@@ -155,18 +170,20 @@ export async function POST(request: NextRequest) {
             temperature: 0.1,
           });
           resumePdfText = (resumePdfText ?? "").trim();
-          console.log("[hearing-question-text] Gemini PDF inline fallback done, chars=", resumePdfText.length);
+          console.log("[hearing-question-text] Gemini PDF inline done, chars=", resumePdfText.length);
+        } catch (e) {
+          lastExtractError = e instanceof Error ? e : new Error(String(e));
+          console.error("[hearing-question-text] Gemini PDF extract failed:", lastExtractError);
+          return NextResponse.json(
+            {
+              error: "PDFの読み取りに失敗しました。しばらくしてから再試行するか、別のPDFでお試しください。",
+              detail: lastExtractError.message,
+            },
+            { status: 500 }
+          );
         }
-      } catch (e) {
-        console.error("[hearing-question-text] Gemini PDF extract failed:", e);
-        return NextResponse.json(
-          {
-            error: "PDFの読み取りに失敗しました。しばらくしてから再試行するか、別のPDFでお試しください。",
-            detail: e instanceof Error ? e.message : String(e),
-          },
-          { status: 500 }
-        );
       }
+
       if (resumePdfText.length === 0) {
         console.error("[hearing-question-text] PDF extraction returned 0 characters. size=", buf.length);
         return NextResponse.json(
