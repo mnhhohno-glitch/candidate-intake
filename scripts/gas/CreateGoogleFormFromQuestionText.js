@@ -137,6 +137,10 @@ function doPost(e) {
   var spreadsheet = SpreadsheetApp.create("回答_" + formTitle);
   form.setDestination(FormApp.DestinationType.SPREADSHEET, spreadsheet.getId());
 
+  // スマホ・社外などから回答URLで開けるよう、フォームを「リンクを知っている全員が閲覧可能」に共有
+  var formFile = DriveApp.getFileById(form.getId());
+  formFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
   result.formId = form.getId();
   result.responseUrl = form.getPublishedUrl();
   result.editUrl = form.getEditUrl();
