@@ -51,6 +51,7 @@ export default function RecordDetailPage() {
   const [copyToast, setCopyToast] = useState(false);
   const [formCreateLoading, setFormCreateLoading] = useState(false);
   const [formCreateError, setFormCreateError] = useState<string | null>(null);
+  const [formCreateWarning, setFormCreateWarning] = useState<string | null>(null);
   const [formResponseUrl, setFormResponseUrl] = useState<string | null>(null);
   const [formEditUrl, setFormEditUrl] = useState<string | null>(null);
   const [formUrlCopyToast, setFormUrlCopyToast] = useState(false);
@@ -247,6 +248,7 @@ export default function RecordDetailPage() {
   const handleCreateGoogleForm = useCallback(async () => {
     if (!candidateId || !questionText.trim()) return;
     setFormCreateError(null);
+    setFormCreateWarning(null);
     setFormCreateLoading(true);
     setFormResponseUrl(null);
     setFormEditUrl(null);
@@ -265,6 +267,7 @@ export default function RecordDetailPage() {
         editUrl?: string;
         formId?: string;
         error?: string;
+        shareWarning?: string;
       };
       if (!res.ok) {
         throw new Error(data.error || "フォームの作成に失敗しました");
@@ -272,6 +275,9 @@ export default function RecordDetailPage() {
       if (data.responseUrl) {
         setFormResponseUrl(data.responseUrl);
         setFormEditUrl(data.editUrl ?? null);
+      }
+      if (data.shareWarning) {
+        setFormCreateWarning(data.shareWarning);
       }
       if (record) {
         setRecord({
@@ -502,6 +508,11 @@ export default function RecordDetailPage() {
               {formCreateError && (
                 <div className="mt-3 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">
                   {formCreateError}
+                </div>
+              )}
+              {formCreateWarning && (
+                <div className="mt-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800" role="status">
+                  {formCreateWarning}
                 </div>
               )}
               {(formResponseUrl || record?.formUrl) && (

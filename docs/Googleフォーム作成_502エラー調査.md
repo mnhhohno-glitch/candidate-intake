@@ -15,7 +15,9 @@
 
 3. **GAS の実行制限・権限**  
    - フォーム・スプレッドシートは GAS を実行している **Google アカウント（Workspace）** で作成されます。  
-   - そのアカウントの Drive/Forms の容量や、組織のポリシーでフォーム作成が制限されていないか確認してください。
+   - そのアカウントの Drive/Forms の容量や、組織のポリシーでフォーム作成が制限されていないか確認してください。  
+   - **「You do not have permission to call DriveApp.getFileById」** と出る場合: フォームの「リンクを知っている全員」共有に **Drive 権限**が必要です。GAS プロジェクトに `appsscript.json` で `oauthScopes` に `https://www.googleapis.com/auth/drive` を追加し、**「デプロイを管理」→ 編集 → 新バージョンでデプロイ**して、表示される認証画面で Drive を許可してください。  
+   - 権限を追加するまででも、**フォームは作成され**、回答URL・編集URLは返ります。画面上に警告（共有は手動で）とともに URL が表示されるので、そのフォームを編集画面で「公開」→「管理」から「リンクを知っている全員」に変更すれば利用できます。
 
 4. **タイムアウト**  
    - 質問文が極端に長い場合、GAS の実行が 90 秒を超えると Next.js 側でタイムアウトし 502 になります。  
@@ -62,3 +64,4 @@ Railway の **Deployments** → 該当デプロイ → **View Logs** で、次�
 | GASへの接続に失敗しました | `GAS_WEB_APP_URL` の値、GAS の「ウェブアプリ」デプロイ URL（/exec）であること。 |
 | 認証トークンが無効です | GAS のスクリプトプロパティ `INVOKE_TOKEN` と Railway の `GAS_INVOKE_TOKEN` が一致しているか。 |
 | フォーム作成中にエラーが発生しました: ... | 表示された例外メッセージに従い、GAS の権限・コード・入力データを確認。 |
+| You do not have permission to call DriveApp.getFileById | GAS に Drive 権限を追加。`appsscript.json` の `oauthScopes` に `https://www.googleapis.com/auth/drive` を追加し、再デプロイして認証で「許可」する。または表示された警告のとおり、作成されたフォームを手動で「公開」→「管理」から「リンクを知っている全員」に変更。 |

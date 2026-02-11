@@ -84,7 +84,13 @@ export async function POST(request: NextRequest) {
     clearTimeout(timeoutId);
 
     const raw = await gasRes.text();
-    let data: { formId?: string; responseUrl?: string; editUrl?: string; error?: string };
+    let data: {
+      formId?: string;
+      responseUrl?: string;
+      editUrl?: string;
+      error?: string;
+      shareWarning?: string;
+    };
     try {
       data = JSON.parse(raw) as typeof data;
     } catch {
@@ -127,6 +133,10 @@ export async function POST(request: NextRequest) {
       formId: data.formId ?? null,
       responseUrl: data.responseUrl,
       editUrl: data.editUrl ?? null,
+      shareWarning:
+        typeof data.shareWarning === "string" && data.shareWarning
+          ? data.shareWarning
+          : undefined,
     });
   } catch (e) {
     console.error("[create-google-form] Fatal error:", e);

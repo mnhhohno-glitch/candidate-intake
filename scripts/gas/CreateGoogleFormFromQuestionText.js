@@ -11,6 +11,8 @@
  *   { candidateId, candidateName?, questionText, token? }
  * レスポンス (JSON):
  *   { formId, responseUrl, editUrl } または { error: "..." }
+ *   Drive 共有に失敗した場合は shareWarning が付与され、フォームURLはそのまま返る（手動共有が必要）。
+ * 必要な権限: Forms, Spreadsheets, Drive（appsscript.json の oauthScopes に drive を追加し、再認証すること）。
  */
 
 var PRIVACY_POLICY_TITLE = "求職者向け個人情報の取扱いについて";
@@ -156,11 +158,13 @@ function parseQualificationLines(block) {
  * 例外時も必ず JSON で返し、Next.js 側で 502 の原因を特定しやすくする。
  */
 function doPost(e) {
-  var result = { error: null, formId: null, responseUrl: null, editUrl: null };
+  var result = { error: null, formId: null, responseUrl: null, editUrl: null, shareWarning: null };
+  if (!e || !e.postData || !e.postData.contents) {
+    result.error = "リクエストボディがありません。POSTでJSONを送信してください。";
+    return createJsonResponse(result, 400);
+  }
   try {
-    var body = e.postData && e.postData.contents
-      ? JSON.parse(e.postData.contents)
-      : {};
+    var body = JSON.parse(e.postData.contents);
   } catch (err) {
     result.error = "リクエストのJSON形式が不正です。";
     return createJsonResponse(result, 400);
@@ -269,8 +273,13 @@ function doCreateForm(candidateId, candidateName, questionText, result) {
   var spreadsheet = SpreadsheetApp.create("回答_" + formTitle);
   form.setDestination(FormApp.DestinationType.SPREADSHEET, spreadsheet.getId());
 
-  var formFile = DriveApp.getFileById(form.getId());
-  formFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  try {
+    var formFile = DriveApp.getFileById(form.getId());
+    formFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  } catch (driveErr) {
+    result.shareWarning =
+      "フォームは作成されましたが、共有設定（リンクを知っている全員）ができていません。編集画面の「公開」→「管理」で「リンクを知っている全員」に変更するか、GASプロジェクトにDriveの権限を追加して再デプロイしてください。";
+  }
 
   result.formId = form.getId();
   result.responseUrl = form.getPublishedUrl();
