@@ -539,7 +539,7 @@ export default function RecordDetailPage() {
                         {formEditUrl || record?.formEditUrl}
                       </a>
                     </p>
-                  ))}
+                  )}
                 </div>
               )}
             </div>
