@@ -1,9 +1,22 @@
 /**
  * PDFをページごとに画像化し、Tesseract.jsで日本語OCRする。
  * テキスト抽出が0文字のときのフォールバック用。Node環境のみ。
+ * cMapUrl/standardFontDataUrl を指定し、日本語PDFのフォント描画エラーを軽減する。
  */
 
+import path from "path";
+import { pathToFileURL } from "url";
+
 const SCALE = 2; // 解像度（OCR精度のため2推奨）
+
+function getPdfJsBasePath(): string {
+  try {
+    return path.join(process.cwd(), "node_modules", "pdfjs-dist");
+  } catch {
+    return "";
+  }
+}
+
 export async function extractTextFromPdfWithOcr(buffer: Buffer): Promise<string> {
   const len = buffer?.length ?? 0;
   if (process.env.NODE_ENV !== "test") {
@@ -16,11 +29,23 @@ export async function extractTextFromPdfWithOcr(buffer: Buffer): Promise<string>
     const { createCanvas } = await import("@napi-rs/canvas");
     const { createWorker } = await import("tesseract.js");
 
-    const loadingTask = pdfjs.getDocument({
+    const basePath = getPdfJsBasePath();
+    const getDocumentOptions: Record<string, unknown> = {
       data: uint8,
       useSystemFonts: true,
       disableFontFace: true,
-    });
+    };
+    if (basePath) {
+      try {
+        getDocumentOptions.cMapUrl = pathToFileURL(path.join(basePath, "cmaps")).href;
+        getDocumentOptions.cMapPacked = true;
+        getDocumentOptions.standardFontDataUrl = pathToFileURL(path.join(basePath, "standard_fonts")).href;
+      } catch {
+        // パス解決に失敗した場合はオプションなしで続行
+      }
+    }
+
+    const loadingTask = pdfjs.getDocument(getDocumentOptions as Parameters<typeof pdfjs.getDocument>[0]);
     const pdfDoc = await loadingTask.promise;
     const numPages = pdfDoc.numPages;
     const textParts: string[] = [];

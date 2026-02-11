@@ -137,11 +137,13 @@ export async function POST(request: NextRequest) {
 
     const gateResult = runExtractionQualityGate(resumePdfText);
     if (!gateResult.ok) {
+      const minChars = getGateMinChars();
       console.warn("[hearing-question-text] gate_checks_failed reason=", gateResult.reason, "resumePdfChars=", resumePdfChars);
       return NextResponse.json(
         {
           error:
             "PDFテキスト抽出が不十分で、住所/資格などの必須項目が取得できませんでした。別PDF、またはスキャンでないPDFでお試しください。",
+          detail: `抽出文字数: ${resumePdfChars} 文字。${gateResult.reason}${gateResult.reason.includes("resumePdfChars") ? "" : ` （${minChars}文字以上必要）`}`,
         },
         { status: 422 }
       );
