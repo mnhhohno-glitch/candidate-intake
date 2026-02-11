@@ -157,6 +157,11 @@ base_prompt: |
   - 番地・建物名・部屋番号がすべて揃っている場合、住所の詳細確認は出力しない
   - 住所そのものが抽出されていない（空）場合は、ケースAの文言を使用する
 
+  #### ■ 【必須】事前抽出結果に基づく住所ケースの選択
+  - 事前抽出結果の address_has_banchi / address_has_building / address_has_room を必ず参照すること。
+  - address_has_room が true かつ address_has_building が false → **必ずケースCのみ**（建物名の記載をお願い）。ケースB（戸建てという認識でよろしいでしょうか）は**絶対に出力しない**。
+  - address_has_banchi が false → ケースA。address_has_banchi が true かつ 建物も部屋もなし → ケースB。
+
   ---
 
   ## ■ 学歴ガードレール（学部・学科）

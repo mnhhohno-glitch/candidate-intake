@@ -95,6 +95,7 @@ export function buildHearingQuestionTextPrompt(
     structuredExtract != null
       ? `【事前抽出結果（判定の参考にすること。これに基づき住所・資格の誤判定を避けること）】
 ${JSON.stringify(structuredExtract, null, 2)}
+${structuredExtract.address_has_room === true && structuredExtract.address_has_building === false ? "\n【住所】番地・部屋番号あり・建物名なし → 必ずケースC（建物名の記載をお願い）のみ使用。ケースB（戸建てでよろしいですか）は使用禁止。\n" : ""}
 
 `
       : "";
