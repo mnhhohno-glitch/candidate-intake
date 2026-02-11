@@ -37,9 +37,9 @@ export async function extractTextFromPdfWithOcr(buffer: Buffer): Promise<string>
     };
     if (basePath) {
       try {
-        getDocumentOptions.cMapUrl = pathToFileURL(path.join(basePath, "cmaps")).href;
+        getDocumentOptions.cMapUrl = pathToFileURL(path.join(basePath, "cmaps") + path.sep).href;
         getDocumentOptions.cMapPacked = true;
-        getDocumentOptions.standardFontDataUrl = pathToFileURL(path.join(basePath, "standard_fonts")).href;
+        getDocumentOptions.standardFontDataUrl = pathToFileURL(path.join(basePath, "standard_fonts") + path.sep).href;
       } catch {
         // パス解決に失敗した場合はオプションなしで続行
       }
