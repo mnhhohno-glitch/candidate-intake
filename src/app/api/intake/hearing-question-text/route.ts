@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateWithGemini, generateWithGeminiWithImage, generateWithGeminiWithPdf, parseJsonResponse } from "@/services/geminiClient";
 import {
+  ACHIEVEMENT_CATEGORY_OPTIONS,
   buildHearingQuestionTextPrompt,
   buildStructuredExtractPrompt,
   type StructuredExtractResult,
@@ -98,6 +99,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         candidate_question_text_only: JOB_TYPE_UNSPECIFIED_OUTPUT,
       });
+    }
+
+    const achievementCategoryRaw = formData.get("achievement_category");
+    const achievementCategory =
+      typeof achievementCategoryRaw === "string" ? achievementCategoryRaw.trim() : "";
+    if (!achievementCategory || !ACHIEVEMENT_CATEGORY_OPTIONS.includes(achievementCategory as typeof ACHIEVEMENT_CATEGORY_OPTIONS[number])) {
+      return NextResponse.json(
+        {
+          error: "実績ヒアリングの職種カテゴリを選択してください。",
+          candidate_question_text_only: "実績ヒアリングの職種カテゴリを選択してください：「営業・販売（数字を追う職種）」「事務・サポート職」「専門・技術職」「マネジメント職」のいずれかを選んでください。",
+        },
+        { status: 400 }
+      );
     }
 
     const pdfFile = formData.get("pdf") as File | null;
@@ -282,7 +296,8 @@ export async function POST(request: NextRequest) {
         jobType,
         resumePdfText,
         interviewMemoText,
-        structuredExtract
+        structuredExtract,
+        achievementCategory
       );
       const stepBStart = Date.now();
       const raw = await generateWithGemini({

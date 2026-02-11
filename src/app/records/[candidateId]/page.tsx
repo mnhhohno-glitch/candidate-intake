@@ -41,10 +41,18 @@ export default function RecordDetailPage() {
   const [excelDownloadName, setExcelDownloadName] = useState("");
 
   const [jobType, setJobType] = useState("");
+  const [achievementCategory, setAchievementCategory] = useState("");
   const [questionText, setQuestionText] = useState("");
   const [questionGenLoading, setQuestionGenLoading] = useState(false);
   const [questionGenError, setQuestionGenError] = useState<string | null>(null);
   const [copyToast, setCopyToast] = useState(false);
+
+  const ACHIEVEMENT_OPTIONS = [
+    "営業・販売（数字を追う職種）",
+    "事務・サポート職",
+    "専門・技術職",
+    "マネジメント職",
+  ] as const;
 
   useEffect(() => {
     if (!candidateId) return;
@@ -180,6 +188,10 @@ export default function RecordDetailPage() {
       setQuestionText(JOB_TYPE_UNSPECIFIED_MESSAGE);
       return;
     }
+    if (!achievementCategory || !ACHIEVEMENT_OPTIONS.includes(achievementCategory as (typeof ACHIEVEMENT_OPTIONS)[number])) {
+      setQuestionGenError("実績ヒアリングの職種カテゴリを選択してください。");
+      return;
+    }
     if (!files.pdf) {
       setQuestionGenError("PDFをアップロードしてください。");
       return;
@@ -189,6 +201,7 @@ export default function RecordDetailPage() {
     try {
       const formData = new FormData();
       formData.append("job_type", jobTypeTrim);
+      formData.append("achievement_category", achievementCategory);
       formData.append("pdf", files.pdf);
       if (files.interviewLog) formData.append("interviewLog", files.interviewLog);
       const res = await fetch("/api/intake/hearing-question-text", {
@@ -207,7 +220,7 @@ export default function RecordDetailPage() {
     } finally {
       setQuestionGenLoading(false);
     }
-  }, [jobType, files.pdf, files.interviewLog]);
+  }, [jobType, achievementCategory, files.pdf, files.interviewLog]);
 
   const handleCopyQuestionText = useCallback(() => {
     if (!questionText) return;
@@ -351,6 +364,28 @@ export default function RecordDetailPage() {
                 placeholder="例：営業、事務"
                 className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
               />
+            </div>
+            <div>
+              <label htmlFor="achievement-category" className="mb-1 block text-sm font-medium text-gray-700">
+                実績ヒアリングの職種カテゴリ（achievement_category） <span className="text-red-600">必須</span>
+              </label>
+              <select
+                id="achievement-category"
+                value={achievementCategory}
+                onChange={(e) => {
+                  setAchievementCategory(e.target.value);
+                  setQuestionGenError(null);
+                }}
+                required
+                className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+              >
+                <option value="">選択してください</option>
+                {ACHIEVEMENT_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <button

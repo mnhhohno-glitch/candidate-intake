@@ -51,6 +51,35 @@ export type Spec05 = {
   output_instruction?: string;
 };
 
+export type Spec06 = {
+  description?: string;
+  categories?: Record<string, { instruction?: string; questions?: string }>;
+};
+
+/** 実績ヒアリングの職種カテゴリ選択肢（UI・APIで共通） */
+export const ACHIEVEMENT_CATEGORY_OPTIONS = [
+  "営業・販売（数字を追う職種）",
+  "事務・サポート職",
+  "専門・技術職",
+  "マネジメント職",
+] as const;
+export type AchievementCategory = (typeof ACHIEVEMENT_CATEGORY_OPTIONS)[number];
+
+/** achievement_category に応じた追加実績ヒアリングブロックを返す。未指定・不明時は空文字 */
+export function getAchievementCategoryBlock(category: string): string {
+  if (!category || typeof category !== "string") return "";
+  const spec = loadYamlSafe<Spec06>("06_achievement_category_followup.yaml");
+  const categories = spec.categories ?? {};
+  const key = category.trim();
+  const entry = categories[key];
+  if (!entry) return "";
+  const desc = (spec.description ?? "").trim();
+  const inst = (entry.instruction ?? "").trim();
+  const q = (entry.questions ?? "").trim();
+  const parts = [desc, inst, q].filter(Boolean);
+  return parts.join("\n\n");
+}
+
 /** Step A 構造化抽出の結果型（04 base_prompt は一切変更しない） */
 export type StructuredExtractResult = {
   highest_education_category?: string;
@@ -79,17 +108,23 @@ ${interviewMemoText || "(なし)"}
   return { systemInstruction, userPrompt };
 }
 
-/** job_type 未指定時は呼び出し側で1行のみ返すこと。指定時のみ本関数でプロンプトを組み立てる。base_prompt 本文は変更しない。 */
+/** job_type 未指定時は呼び出し側で1行のみ返すこと。指定時のみ本関数でプロンプトを組み立てる。base_prompt 本文は変更しない。achievement_category 指定時は追加実績ヒアリングを末尾に結合。 */
 export function buildHearingQuestionTextPrompt(
   jobType: string,
   resumePdfText: string,
   interviewMemoText: string,
-  structuredExtract?: StructuredExtractResult | null
+  structuredExtract?: StructuredExtractResult | null,
+  achievementCategory?: string | null
 ): { systemInstruction: string; userPrompt: string } {
   const spec = loadYamlSafe<Spec04>("04_hearing_question_text_prompt.yaml");
   const basePrompt = spec.base_prompt ?? "";
   const inputInstruction = spec.input_instruction ?? "";
-  const systemInstruction = `${basePrompt}\n\n---\n\n${inputInstruction}`.trim();
+  const achievementBlock = achievementCategory ? getAchievementCategoryBlock(achievementCategory) : "";
+  const middle =
+    achievementBlock !== ""
+      ? `\n\n---\n\n## ■ 追加実績ヒアリングロジック（achievement_category に応じて出力）\n\nachievement_category が「${achievementCategory}」の場合、実績確認セクションとして以下をそのまま追加すること。他の生成ロジックには影響を与えない。\n\n${achievementBlock}\n\n---\n\n`
+      : "\n\n---\n\n";
+  const systemInstruction = `${basePrompt}${middle}${inputInstruction}`.trim();
 
   const structuredBlock =
     structuredExtract != null
@@ -102,6 +137,7 @@ ${structuredExtract.address_has_room === true && structuredExtract.address_has_b
 
   const userPrompt = `${structuredBlock}【job_type】
 ${jobType}
+${achievementCategory ? `\n【achievement_category】\n${achievementCategory}\n` : ""}
 
 【候補者WEB履歴書PDF抽出テキスト】
 ${resumePdfText || "(なし)"}
