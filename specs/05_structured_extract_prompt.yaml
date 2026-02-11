@@ -20,7 +20,7 @@ output_instruction: |
   - highest_education_category: 最終学歴の区分。記載が無ければ「不明」
   - qualifications_list: 資格名の配列。記載が無ければ[]
   - address_full: 住所として抽出できた文字列
-  - address_has_banchi: 番地（数字-数字や丁目等）が含まれるか
-  - address_has_building: 建物名が含まれるか
-  - address_has_room: 部屋番号（号室等）が含まれるか
+  - address_has_banchi: 番地（丁目・番地・数字-数字等）が含まれるか
+  - address_has_building: 建物名が含まれるか（マンション名・アパート名・ビル名・○○ハイツ等）
+  - address_has_room: 部屋番号（号室・〇〇室等）が含まれるか
   - education_has_faculty_keywords: 学部・学科・専攻・課程・コース・プログラム・研究科・専修・分野・領域・学類・学群のいずれかが含まれるか

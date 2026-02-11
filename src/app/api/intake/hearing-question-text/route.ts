@@ -71,13 +71,12 @@ function checkOutputRules(
       return { passed: false, reason: "qualifications_list>=1 but output missing qualification block" };
     }
   }
+  // 番地・部屋番号があるのに「戸建てでよろしいですか」は不適切（ケースBは番地のみ・建物・部屋なしのときのみ）
   const hasBanchi = structured.address_has_banchi === true;
   const hasRoom = structured.address_has_room === true;
   if (hasBanchi && hasRoom) {
-    const hasAddressConfirmBlock =
-      output.includes("ご住所について確認") || output.includes("番地や建物名、部屋番号の記載が確認できなかった");
-    if (hasAddressConfirmBlock) {
-      return { passed: false, reason: "address_has_banchi+room but output contains address confirmation block" };
+    if (output.includes("戸建てという認識でよろしいでしょうか")) {
+      return { passed: false, reason: "address has room number; must not ask if 戸建て (use 建物名の記載をお願い instead)" };
     }
   }
   return { passed: true };
