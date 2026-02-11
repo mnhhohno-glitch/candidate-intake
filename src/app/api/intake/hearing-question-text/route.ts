@@ -117,7 +117,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           {
             error:
-              "PDFからテキストを抽出できませんでした。スキャン画像のみのPDFの場合はOCRが失敗している可能性があります。別のPDFをお試しください。",
+              "PDFからテキストを1文字も抽出できませんでした。テキストが選択・コピーできる形式のPDFでお試しください。スキャン画像のみのPDFや、形式・保護の影響で読み取れない場合があります。",
+            detail: "抽出結果が0文字のため処理を中断しました。",
           },
           { status: 400 }
         );
