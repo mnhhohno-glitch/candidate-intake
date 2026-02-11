@@ -489,16 +489,15 @@ export default function RecordDetailPage() {
                 {copyToast && (
                   <span className="text-sm text-green-600">コピーしました</span>
                 )}
-                {questionText.trim() && (
-                  <button
-                    type="button"
-                    onClick={handleCreateGoogleForm}
-                    disabled={formCreateLoading}
-                    className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-                  >
-                    {formCreateLoading ? "作成中…" : "Googleフォームを作成"}
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={handleCreateGoogleForm}
+                  disabled={formCreateLoading || !questionText.trim()}
+                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={questionText.trim() ? "生成された質問文からGoogleフォームを作成" : "先に「質問文を生成」を実行してください"}
+                >
+                  {formCreateLoading ? "作成中…" : "Googleフォームを作成"}
+                </button>
               </div>
               {formCreateError && (
                 <div className="mt-3 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">
