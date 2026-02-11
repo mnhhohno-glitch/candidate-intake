@@ -65,7 +65,22 @@ var PRIVACY_POLICY_BODY =
   "住所：〒102・0083 東京都千代田区麹町4・5・20 KSビル8階";
 
 var CONSENT_CHECKBOX_LABEL =
-  "上記『求職者向け個人情報の取扱いについて』を確認し、同意します。";
+  "上記内容を確認し、同意します。";
+
+// 個人情報同意：内容は「確認する場合のみ」表示するための説明文
+var CONSENT_INSTRUCTION =
+  "※内容を確認する場合のみ以下をご覧ください。同意される場合は下のチェックを入れて送信してください。";
+
+// 写真データの提出：ラジオボタン用の3択
+var PHOTO_OPTIONS = [
+  "証明写真データを持っているため、別途提出。",
+  "証明写真データを持っていないが、証明写真機で別途撮影後提出。",
+  "自宅でスマホの撮影をして後日提出。"
+];
+
+var ACHIEVEMENT_ANNOTATION = "（※不明な場合は空白で構いません）";
+var QUALIFICATION_EXTRA_DESC =
+  "他に追加で記載する資格がある場合は資格名：取得年月を追加記入してください。";
 
 /**
  * テキストを「回答：」または「回答:」で区切り、1質問＝1ブロックの配列にする。
@@ -80,6 +95,60 @@ function parseQuestionBlocks(questionText) {
     if (block) blocks.push(block);
   }
   return blocks;
+}
+
+function isAchievementBlock(block) {
+  return /実績/.test(block);
+}
+
+function isJobConsciousnessBlock(block) {
+  return /仕事において意識していたこと/.test(block);
+}
+
+function isSelfPRBlock(block) {
+  return /自己PR|自己 pr/i.test(block);
+}
+
+function isPhotoBlock(block) {
+  return /写真/.test(block) && /提出|データ/.test(block);
+}
+
+function isQualificationBlock(block) {
+  return /資格/.test(block);
+}
+
+/**
+ * ブロックから「1. 〇〇」「2. 〇〇」形式の選択肢を抽出して配列で返す。
+ * 先頭の見出し行は除外し、番号付き行だけを choices にする。
+ */
+function parseNumberedChoices(block) {
+  var lines = block.split(/\n/);
+  var choices = [];
+  var re = /^[\d一二三四五六七八九十]+[．.．:：]\s*(.+)$/;
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if (!line) continue;
+    var m = line.match(re);
+    if (m) choices.push(m[1].trim());
+  }
+  return choices;
+}
+
+/**
+ * 資格ブロックを1行1資格として分割。空行・見出しのみは除外。
+ * 戻り値: [ "資格1", "資格2", ... ]
+ */
+function parseQualificationLines(block) {
+  var lines = block.split(/\n/);
+  var items = [];
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if (!line) continue;
+    // 「資格質問欄」「資格」だけの行は見出しとしてスキップ
+    if (/^資格質問?欄?$/.test(line) || /^資格$/.test(line)) continue;
+    items.push(line);
+  }
+  return items;
 }
 
 /**
@@ -117,17 +186,69 @@ function doPost(e) {
   }
 
   var blocks = parseQuestionBlocks(questionText);
-  var formTitle = candidateId + "_" + (candidateName || "候補者") + "_質問フォーム";
+  // タイトル：求職者NOは表示しない。氏名に様を付与。
+  var formTitle = (candidateName || "候補者") + "様_質問フォーム";
 
   var form = FormApp.create(formTitle);
   form.setDescription("候補者向けヒアリングフォーム（Candidate Intake から作成）");
+  // スマホ・社外でログイン不要で開けるよう、回答にログインを必須にしない
+  form.setRequireLogin(false);
 
   for (var i = 0; i < blocks.length; i++) {
-    form.addParagraphTextItem().setTitle(blocks[i]).setRequired(false);
+    var block = blocks[i];
+
+    if (isPhotoBlock(block)) {
+      // 写真データの提出：ラジオボタン（単一選択）
+      var photoItem = form.addMultipleChoiceItem();
+      photoItem.setTitle(block);
+      photoItem.setChoiceValues(PHOTO_OPTIONS);
+      photoItem.setRequired(false);
+      continue;
+    }
+
+    if (isJobConsciousnessBlock(block) || isSelfPRBlock(block)) {
+      var choices = parseNumberedChoices(block);
+      if (choices.length > 0) {
+        var checkItem = form.addCheckboxItem();
+        checkItem.setTitle(block);
+        checkItem.setChoiceValues(choices);
+        checkItem.setRequired(false);
+      } else {
+        form.addParagraphTextItem().setTitle(block).setRequired(false);
+      }
+      continue;
+    }
+
+    if (isQualificationBlock(block)) {
+      var qualLines = parseQualificationLines(block);
+      for (var q = 0; q < qualLines.length; q++) {
+        form.addParagraphTextItem()
+          .setTitle(qualLines[q])
+          .setRequired(false);
+      }
+      form.addParagraphTextItem()
+        .setTitle("その他（追加の資格）")
+        .setHelpText(QUALIFICATION_EXTRA_DESC)
+        .setRequired(false);
+      continue;
+    }
+
+    if (isAchievementBlock(block)) {
+      form.addParagraphTextItem()
+        .setTitle(block)
+        .setHelpText(ACHIEVEMENT_ANNOTATION)
+        .setRequired(false);
+      continue;
+    }
+
+    form.addParagraphTextItem().setTitle(block).setRequired(false);
   }
 
   form.addPageBreakItem();
   form.addSectionHeaderItem().setTitle(PRIVACY_POLICY_TITLE);
+  form.addParagraphTextItem()
+    .setTitle(CONSENT_INSTRUCTION)
+    .setRequired(false);
   form.addParagraphTextItem().setTitle(PRIVACY_POLICY_BODY).setRequired(false);
   var consentItem = form.addCheckboxItem();
   consentItem.setTitle(CONSENT_CHECKBOX_LABEL);
