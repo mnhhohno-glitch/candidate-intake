@@ -94,13 +94,15 @@ export async function POST(request: NextRequest) {
 
     const buffer = await buildXlsxBuffer(parsed);
     const baseName = getCandidateName(commonAnalysisJson);
-    const filename = `基本情報シート_${baseName}.xlsx`;
+    // HTTP ヘッダは ByteString のみ可。非 ASCII を除去してクラッシュ防止。
+    const safeBase = (baseName || "sheet").replace(/[^\x00-\x7F]/g, "_").replace(/_+/g, "_") || "sheet";
+    const safeFilename = `intake_${safeBase}.xlsx`;
 
     return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}"`,
+        "Content-Disposition": `attachment; filename="${safeFilename}"`,
         "Content-Length": String(buffer.length),
       },
     });

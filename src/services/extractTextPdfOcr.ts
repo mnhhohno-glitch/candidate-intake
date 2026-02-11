@@ -28,9 +28,9 @@ function buildOcrPdfJsOptions(uint8: Uint8Array, withCmap: boolean): Record<stri
     const basePath = getPdfJsBasePath();
     if (basePath) {
       try {
-        opts.cMapUrl = pathToFileURL(path.join(basePath, "cmaps") + path.sep).href;
+        opts.cMapUrl = pathToFileURL(path.join(basePath, "cmaps") + "/").href;
         opts.cMapPacked = true;
-        opts.standardFontDataUrl = pathToFileURL(path.join(basePath, "standard_fonts") + path.sep).href;
+        opts.standardFontDataUrl = pathToFileURL(path.join(basePath, "standard_fonts") + "/").href;
       } catch {
         // パス解決に失敗した場合はオプションなしで続行
       }

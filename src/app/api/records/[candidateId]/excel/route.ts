@@ -19,11 +19,13 @@ export async function GET(
       );
     }
     const buf = await fs.readFile(filePath);
+    // HTTP ヘッダは ByteString(Latin-1) のみ可。日本語ファイル名は ASCII にするとクラッシュ防止。
+    const safeFilename = `reoutput_${candidateId}.xlsx`;
     return new NextResponse(buf, {
       headers: {
         "Content-Type":
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename="再出力_${candidateId}.xlsx"`,
+        "Content-Disposition": `attachment; filename="${safeFilename}"`,
       },
     });
   } catch (e) {

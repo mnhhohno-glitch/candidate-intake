@@ -35,9 +35,10 @@ function buildPdfJsOptions(
     const basePath = getPdfJsBasePath();
     if (basePath) {
       try {
-        opts.cMapUrl = pathToFileURL(path.join(basePath, "cmaps") + path.sep).href;
+        // 本番(Docker)で pdfjs が要求する「末尾スラッシュ」を確実に付与（URL は / で統一）
+        opts.cMapUrl = pathToFileURL(path.join(basePath, "cmaps") + "/").href;
         opts.cMapPacked = true;
-        opts.standardFontDataUrl = pathToFileURL(path.join(basePath, "standard_fonts") + path.sep).href;
+        opts.standardFontDataUrl = pathToFileURL(path.join(basePath, "standard_fonts") + "/").href;
       } catch {
         // ignore
       }
