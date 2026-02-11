@@ -108,13 +108,14 @@ ${interviewMemoText || "(なし)"}
   return { systemInstruction, userPrompt };
 }
 
-/** job_type 未指定時は呼び出し側で1行のみ返すこと。指定時のみ本関数でプロンプトを組み立てる。base_prompt 本文は変更しない。achievement_category 指定時は追加実績ヒアリングを末尾に結合。 */
+/** job_type 未指定時は呼び出し側で1行のみ返すこと。指定時のみ本関数でプロンプトを組み立てる。base_prompt 本文は変更しない。achievement_category 指定時は追加実績ヒアリングを末尾に結合。extraUserPromptSuffix は再試行時に資格ブロック必須などを追記する用。 */
 export function buildHearingQuestionTextPrompt(
   jobType: string,
   resumePdfText: string,
   interviewMemoText: string,
   structuredExtract?: StructuredExtractResult | null,
-  achievementCategory?: string | null
+  achievementCategory?: string | null,
+  extraUserPromptSuffix?: string | null
 ): { systemInstruction: string; userPrompt: string } {
   const spec = loadYamlSafe<Spec04>("04_hearing_question_text_prompt.yaml");
   const basePrompt = spec.base_prompt ?? "";
@@ -144,6 +145,7 @@ ${resumePdfText || "(なし)"}
 
 【面談メモ】
 ${interviewMemoText || "(なし)"}
+${extraUserPromptSuffix ? `\n\n${extraUserPromptSuffix}` : ""}
 
 上記を解析し、プロンプトに従い候補者に送る質問本文のみを出力してください。見出し・内部メモ・解析過程・GoogleフォームやURLは一切出力しないでください。`;
   return { systemInstruction, userPrompt };

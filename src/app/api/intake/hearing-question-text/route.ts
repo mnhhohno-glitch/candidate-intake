@@ -59,18 +59,42 @@ function runExtractionQualityGate(resumePdfText: string): { ok: true } | { ok: f
   return { ok: true };
 }
 
+/** 全角英数字を半角に正規化（AI出力の表記ゆれで自己検査が誤判定しないように） */
+function normalizeForCheck(s: string): string {
+  return s.replace(/[０-９Ａ-Ｚａ-ｚ]/g, (c) =>
+    String.fromCharCode(c.charCodeAt(0) - 0xfee0)
+  );
+}
+
 /** Phase3: 出力自己検査。資格ブロック必須 / 住所ブロック禁止違反を検出 */
 function checkOutputRules(
   output: string,
   structured: StructuredExtractResult
 ): { passed: true } | { passed: false; reason: string } {
+  const normalized = normalizeForCheck(output);
   const quals = structured.qualifications_list ?? [];
   if (quals.length >= 1) {
-    const hasQualificationBlock =
-      output.includes("取得年月を教えてください") ||
-      output.includes("取得年月") ||
-      output.includes("資格");
+    const qualificationPatterns = [
+      "取得年月を教えてください",
+      "取得年月",
+      "資格",
+      "取得日を教えてください",
+      "取得日",
+      "上記資格",
+      "免許",
+      "検定",
+      "20○○年○月",
+      "年○月",
+    ];
+    const hasQualificationBlock = qualificationPatterns.some(
+      (p) => output.includes(p) || normalized.includes(p)
+    );
     if (!hasQualificationBlock) {
+      console.warn(
+        "[hearing-question-text] qualification block check failed. output preview:",
+        output.slice(0, 500),
+        "..."
+      );
       return { passed: false, reason: "qualifications_list>=1 but output missing qualification block" };
     }
   }
@@ -78,7 +102,10 @@ function checkOutputRules(
   const hasBanchi = structured.address_has_banchi === true;
   const hasRoom = structured.address_has_room === true;
   if (hasBanchi && hasRoom) {
-    if (output.includes("戸建てという認識でよろしいでしょうか")) {
+    const hasInappropriateTatei =
+      output.includes("戸建てという認識でよろしいでしょうか") ||
+      normalized.includes("戸建てという認識でよろしいでしょうか");
+    if (hasInappropriateTatei) {
       return { passed: false, reason: "address has room number; must not ask if 戸建て (use 建物名の記載をお願い instead)" };
     }
   }
@@ -293,13 +320,14 @@ export async function POST(request: NextRequest) {
     let retryCount = 0;
     const maxRetries = 1;
 
-    const runStepB = async (): Promise<string> => {
+    const runStepB = async (extraUserPromptSuffix?: string): Promise<string> => {
       const { systemInstruction, userPrompt } = buildHearingQuestionTextPrompt(
         jobType,
         resumePdfText,
         interviewMemoText,
         structuredExtract,
-        achievementCategory
+        achievementCategory,
+        extraUserPromptSuffix ?? null
       );
       const stepBStart = Date.now();
       const raw = await generateWithGemini({
@@ -319,12 +347,18 @@ export async function POST(request: NextRequest) {
     };
 
     text = await runStepB();
-    const outputCheck = checkOutputRules(text, structuredExtract);
+    let outputCheck = checkOutputRules(text, structuredExtract);
     if (!outputCheck.passed && retryCount < maxRetries) {
       retryCount += 1;
       console.warn("[hearing-question-text] output_self_check failed reason=", outputCheck.reason, "retry_count=", retryCount);
-      text = await runStepB();
+      const qualCount = structuredExtract.qualifications_list?.length ?? 0;
+      const retrySuffix =
+        outputCheck.reason.includes("qualification") && qualCount >= 1
+          ? `【再試行時の必須指示】事前抽出で資格が${qualCount}件あります。必ず「上記資格について、取得年月を教えてください。」を含む資格の取得年月確認ブロックを出力すること。省略禁止。`
+          : undefined;
+      text = await runStepB(retrySuffix);
       const recheck = checkOutputRules(text, structuredExtract);
+      outputCheck = recheck;
       if (!recheck.passed) {
         console.error("[hearing-question-text] output_self_check still failed after retry reason=", recheck.reason);
         return NextResponse.json(
