@@ -51,8 +51,8 @@ export async function extractTextFromPdf(buffer: Buffer): Promise<string> {
       }
     }
 
-    // 3) まだ短い場合に OCR
-    if (text.length < MIN_TEXT_LENGTH_BEFORE_OCR && numpages > 0) {
+    // 3) まだ短い場合に OCR（ページ数が取れていなくても len>0 なら試す。OCR 内で getDocument してページ数を取得する）
+    if (text.length < MIN_TEXT_LENGTH_BEFORE_OCR && len > 0) {
       if (process.env.NODE_ENV !== "test") {
         console.log("[extractText] Text still short, trying OCR fallback...");
       }

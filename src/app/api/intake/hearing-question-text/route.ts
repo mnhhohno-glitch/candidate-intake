@@ -12,14 +12,15 @@ const JOB_TYPE_UNSPECIFIED_OUTPUT =
 
 /**
  * Phase1: 抽出品質ゲート。不足時は422。
- * 判定対象は「PDF 1通の抽出テキスト全体の文字数」のみ。項目ごと・ページごとの判定は行わない。
- * 101字以上で通過。100文字以下（0〜100）をエラー対象とする（抽出失敗・ほぼ空白のみを通さない）。
+ * 判定対象は「PDF 1通の抽出テキスト全体の文字数」のみ。
+ * デフォルトは1（0文字以外は通過）。本番で pdfjs CMap 未読で OCR のみ38文字になるPDFでも通過させる。
+ * 厳格にしたい場合は HEARING_GATE_MIN_CHARS=101 等を設定。
  */
 function getGateMinChars(): number {
   const v = process.env.HEARING_GATE_MIN_CHARS;
-  if (v === "" || v == null) return 101;
+  if (v === "" || v == null) return 1;
   const n = parseInt(v, 10);
-  return Number.isNaN(n) ? 101 : n;
+  return Number.isNaN(n) ? 1 : n;
 }
 /** 空ならスキップ（デフォルト）。特定PDF用に厳格化したいときだけ env で指定 */
 function getGateQualificationSubstrings(): string[] {

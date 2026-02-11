@@ -22,8 +22,59 @@ export async function extractTextFromPdfWithPdfJs(buffer: Buffer): Promise<strin
   return r.text;
 }
 
+function buildPdfJsOptions(
+  uint8: Uint8Array,
+  withCmap: boolean
+): Record<string, unknown> {
+  const opts: Record<string, unknown> = {
+    data: uint8,
+    useSystemFonts: true,
+    disableFontFace: true,
+  };
+  if (withCmap) {
+    const basePath = getPdfJsBasePath();
+    if (basePath) {
+      try {
+        opts.cMapUrl = pathToFileURL(path.join(basePath, "cmaps") + path.sep).href;
+        opts.cMapPacked = true;
+        opts.standardFontDataUrl = pathToFileURL(path.join(basePath, "standard_fonts") + path.sep).href;
+      } catch {
+        // ignore
+      }
+    }
+  }
+  return opts;
+}
+
+async function extractWithOptions(
+  pdfjs: unknown,
+  getDocumentOptions: Record<string, unknown>
+): Promise<PdfJsExtractResult> {
+  const getDoc = (pdfjs as { getDocument: (opts: unknown) => { promise: Promise<unknown> } }).getDocument;
+  const loadingTask = getDoc(getDocumentOptions);
+  const pdfDoc = (await loadingTask.promise) as {
+    numPages: number;
+    getPage: (i: number) => Promise<{ getTextContent: () => Promise<{ items: { str?: string }[] }> }>;
+    destroy: () => void;
+  };
+  const numPages = pdfDoc.numPages;
+  const textParts: string[] = [];
+  for (let i = 1; i <= numPages; i++) {
+    const page = await pdfDoc.getPage(i);
+    const textContent = await page.getTextContent();
+    const pageText = (textContent.items as { str?: string }[])
+      .map((item) => (typeof item.str === "string" ? item.str : ""))
+      .join(" ");
+    textParts.push(pageText);
+  }
+  pdfDoc.destroy();
+  const result = textParts.join("\n\n").trim();
+  return { text: result, numPages };
+}
+
 /**
  * テキストとページ数を返す。extractText.ts で OCR 要不要の判定に numPages を使う。
+ * CMap 指定で 0 文字のときは CMap なしで再試行（本番で file:// CMap が読めない場合のフォールバック）。
  */
 export async function extractTextFromPdfWithPdfJsFull(buffer: Buffer): Promise<PdfJsExtractResult> {
   const len = buffer?.length ?? 0;
@@ -35,43 +86,18 @@ export async function extractTextFromPdfWithPdfJsFull(buffer: Buffer): Promise<P
     const uint8 = new Uint8Array(buffer);
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
 
-    const basePath = getPdfJsBasePath();
-    const getDocumentOptions: Record<string, unknown> = {
-      data: uint8,
-      useSystemFonts: true,
-      disableFontFace: true,
-    };
-    if (basePath) {
-      try {
-        getDocumentOptions.cMapUrl = pathToFileURL(path.join(basePath, "cmaps") + path.sep).href;
-        getDocumentOptions.cMapPacked = true;
-        getDocumentOptions.standardFontDataUrl = pathToFileURL(path.join(basePath, "standard_fonts") + path.sep).href;
-      } catch {
-        // パス解決に失敗した場合はオプションなしで続行
+    let result = await extractWithOptions(pdfjs, buildPdfJsOptions(uint8, true));
+    if (result.text.length === 0 && result.numPages > 0) {
+      if (process.env.NODE_ENV !== "test") {
+        console.log("[extractTextPdfJs] 0 chars with cMap, retrying without cMap...");
       }
+      result = await extractWithOptions(pdfjs, buildPdfJsOptions(uint8, false));
     }
 
-    const loadingTask = pdfjs.getDocument(getDocumentOptions as Parameters<typeof pdfjs.getDocument>[0]);
-    const pdfDoc = await loadingTask.promise;
-    const numPages = pdfDoc.numPages;
-    const textParts: string[] = [];
-
-    for (let i = 1; i <= numPages; i++) {
-      const page = await pdfDoc.getPage(i);
-      const textContent = await page.getTextContent();
-      const pageText = (textContent.items as { str?: string }[])
-        .map((item) => (typeof item.str === "string" ? item.str : ""))
-        .join(" ");
-      textParts.push(pageText);
-    }
-
-    pdfDoc.destroy();
-
-    const result = textParts.join("\n\n").trim();
     if (process.env.NODE_ENV !== "test") {
-      console.log("[extractTextPdfJs] Done, pages:", numPages, "chars:", result.length);
+      console.log("[extractTextPdfJs] Done, pages:", result.numPages, "chars:", result.text.length);
     }
-    return { text: result, numPages };
+    return result;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[extractTextPdfJs] Failed:", msg);

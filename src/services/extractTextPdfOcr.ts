@@ -2,6 +2,7 @@
  * PDFをページごとに画像化し、Tesseract.jsで日本語OCRする。
  * テキスト抽出が0文字のときのフォールバック用。Node環境のみ。
  * cMapUrl/standardFontDataUrl を指定し、日本語PDFのフォント描画エラーを軽減する。
+ * getDocument が失敗した場合（例: Invalid factory url）は CMap なしで再試行する。
  */
 
 import path from "path";
@@ -17,6 +18,27 @@ function getPdfJsBasePath(): string {
   }
 }
 
+function buildOcrPdfJsOptions(uint8: Uint8Array, withCmap: boolean): Record<string, unknown> {
+  const opts: Record<string, unknown> = {
+    data: uint8,
+    useSystemFonts: true,
+    disableFontFace: true,
+  };
+  if (withCmap) {
+    const basePath = getPdfJsBasePath();
+    if (basePath) {
+      try {
+        opts.cMapUrl = pathToFileURL(path.join(basePath, "cmaps") + path.sep).href;
+        opts.cMapPacked = true;
+        opts.standardFontDataUrl = pathToFileURL(path.join(basePath, "standard_fonts") + path.sep).href;
+      } catch {
+        // パス解決に失敗した場合はオプションなしで続行
+      }
+    }
+  }
+  return opts;
+}
+
 export async function extractTextFromPdfWithOcr(buffer: Buffer): Promise<string> {
   const len = buffer?.length ?? 0;
   if (process.env.NODE_ENV !== "test") {
@@ -29,24 +51,22 @@ export async function extractTextFromPdfWithOcr(buffer: Buffer): Promise<string>
     const { createCanvas } = await import("@napi-rs/canvas");
     const { createWorker } = await import("tesseract.js");
 
-    const basePath = getPdfJsBasePath();
-    const getDocumentOptions: Record<string, unknown> = {
-      data: uint8,
-      useSystemFonts: true,
-      disableFontFace: true,
+    let loadingTask = pdfjs.getDocument(buildOcrPdfJsOptions(uint8, true) as Parameters<typeof pdfjs.getDocument>[0]);
+    let pdfDoc: {
+      numPages: number;
+      getPage: (i: number) => Promise<{ getViewport: (o: { scale: number }) => { width: number; height: number }; render: (o: unknown) => { promise: Promise<unknown> } }>;
+      destroy: () => void;
     };
-    if (basePath) {
-      try {
-        getDocumentOptions.cMapUrl = pathToFileURL(path.join(basePath, "cmaps") + path.sep).href;
-        getDocumentOptions.cMapPacked = true;
-        getDocumentOptions.standardFontDataUrl = pathToFileURL(path.join(basePath, "standard_fonts") + path.sep).href;
-      } catch {
-        // パス解決に失敗した場合はオプションなしで続行
+    try {
+      pdfDoc = await loadingTask.promise as typeof pdfDoc;
+    } catch (loadErr) {
+      const loadMsg = loadErr instanceof Error ? loadErr.message : String(loadErr);
+      if (process.env.NODE_ENV !== "test") {
+        console.warn("[extractTextPdfOcr] getDocument with cMap failed:", loadMsg, "- retrying without cMap");
       }
+      loadingTask = pdfjs.getDocument(buildOcrPdfJsOptions(uint8, false) as Parameters<typeof pdfjs.getDocument>[0]);
+      pdfDoc = await loadingTask.promise as typeof pdfDoc;
     }
-
-    const loadingTask = pdfjs.getDocument(getDocumentOptions as Parameters<typeof pdfjs.getDocument>[0]);
-    const pdfDoc = await loadingTask.promise;
     const numPages = pdfDoc.numPages;
     const textParts: string[] = [];
 
