@@ -66,12 +66,35 @@ function normalizeForCheck(s: string): string {
   );
 }
 
-/** Phase3: 出力自己検査。資格ブロック必須 / 住所ブロック禁止違反を検出 */
+/** Phase3: 出力自己検査。高校・資格ブロック必須 / 住所ブロック禁止違反を検出 */
 function checkOutputRules(
   output: string,
   structured: StructuredExtractResult
 ): { passed: true } | { passed: false; reason: string } {
   const normalized = normalizeForCheck(output);
+  const highestEd = structured.highest_education_category ?? "";
+  const needHighSchoolBlock = highestEd !== "" && highestEd !== "高校";
+  if (needHighSchoolBlock) {
+    const highSchoolPatterns = [
+      "高校名と卒業年度",
+      "高等学校",
+      "入学年度について",
+      "卒業年度について",
+    ];
+    const hasHighSchoolBlock = highSchoolPatterns.some(
+      (p) => output.includes(p) || normalized.includes(p)
+    );
+    if (!hasHighSchoolBlock) {
+      console.warn(
+        "[hearing-question-text] high school block check failed. highest_education_category=",
+        highestEd,
+        "output preview:",
+        output.slice(0, 400),
+        "..."
+      );
+      return { passed: false, reason: "highest_education not 高校 but output missing high school block" };
+    }
+  }
   const quals = structured.qualifications_list ?? [];
   if (quals.length >= 1) {
     const qualificationPatterns = [
@@ -352,10 +375,14 @@ export async function POST(request: NextRequest) {
       retryCount += 1;
       console.warn("[hearing-question-text] output_self_check failed reason=", outputCheck.reason, "retry_count=", retryCount);
       const qualCount = structuredExtract.qualifications_list?.length ?? 0;
-      const retrySuffix =
-        outputCheck.reason.includes("qualification") && qualCount >= 1
-          ? `【再試行時の必須指示】事前抽出で資格が${qualCount}件あります。必ず「上記資格について、取得年月を教えてください。」を含む資格の取得年月確認ブロックを出力すること。省略禁止。`
-          : undefined;
+      const parts: string[] = [];
+      if (outputCheck.reason.includes("qualification") && qualCount >= 1) {
+        parts.push(`【再試行】資格が${qualCount}件あるため、必ず「上記資格について、取得年月を教えてください」ブロックを出力すること。省略禁止。`);
+      }
+      if (outputCheck.reason.includes("high school")) {
+        parts.push("【再試行】最終学歴が高校卒以外のため、必ず「高校名と卒業年度、入学年度について教えてください」のブロックをそのまま出力すること。省略禁止。");
+      }
+      const retrySuffix = parts.length > 0 ? parts.join(" ") : undefined;
       text = await runStepB(retrySuffix);
       const recheck = checkOutputRules(text, structuredExtract);
       outputCheck = recheck;

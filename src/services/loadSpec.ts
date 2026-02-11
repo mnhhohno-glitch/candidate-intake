@@ -127,11 +127,14 @@ export function buildHearingQuestionTextPrompt(
       : "\n\n---\n\n";
   const systemInstruction = `${basePrompt}${middle}${inputInstruction}`.trim();
 
+  const highestEd = structuredExtract?.highest_education_category ?? "";
+  const needHighSchoolBlock = highestEd !== "" && highestEd !== "高校";
   const structuredBlock =
     structuredExtract != null
       ? `【事前抽出結果（判定の参考にすること。これに基づき住所・資格の誤判定を避けること）】
 ${JSON.stringify(structuredExtract, null, 2)}
 ${structuredExtract.address_has_room === true && structuredExtract.address_has_building === false ? "\n【住所】番地・部屋番号あり・建物名なし → 必ずケースC（建物名の記載をお願い）のみ使用。ケースB（戸建てでよろしいですか）は使用禁止。\n" : ""}
+${needHighSchoolBlock ? "\n【高校】最終学歴が高校卒以外（highest_education_category=" + highestEd + "）のため、必ず「高校名と卒業年度、入学年度について教えてください」のブロックをそのまま出力すること。省略禁止。\n" : ""}
 
 `
       : "";
