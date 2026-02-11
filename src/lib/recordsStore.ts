@@ -22,6 +22,12 @@ export interface AttachmentSummary {
   flagListName?: string;
 }
 
+export interface FormUrlInfo {
+  formUrl?: string;
+  formEditUrl?: string;
+  formId?: string;
+}
+
 export interface StoredRecord {
   candidateId: string;
   candidateName: string;
@@ -29,6 +35,12 @@ export interface StoredRecord {
   createdAt: string;
   lastOutputAt?: string;
   attachmentSummary?: AttachmentSummary;
+  /** 質問文から作成したGoogleフォームの回答URL（候補者送付用） */
+  formUrl?: string;
+  /** フォーム編集用URL（社内用） */
+  formEditUrl?: string;
+  /** フォームID */
+  formId?: string;
 }
 
 async function ensureDataDir() {
@@ -129,6 +141,26 @@ export async function getCachedExcelPath(candidateId: string): Promise<string | 
 export async function getRecord(candidateId: string): Promise<StoredRecord | null> {
   const records = await readRecords();
   return records.find((r) => r.candidateId === candidateId) ?? null;
+}
+
+/**
+ * 求職者レコードのフォームURL情報のみを更新する（Googleフォーム作成後に呼ぶ）。
+ */
+export async function updateRecordFormUrls(
+  candidateId: string,
+  urls: FormUrlInfo
+): Promise<StoredRecord | null> {
+  const records = await readRecords();
+  const idx = records.findIndex((r) => r.candidateId === candidateId);
+  if (idx < 0) return null;
+  records[idx] = {
+    ...records[idx],
+    formUrl: urls.formUrl ?? records[idx].formUrl,
+    formEditUrl: urls.formEditUrl ?? records[idx].formEditUrl,
+    formId: urls.formId ?? records[idx].formId,
+  };
+  await writeRecords(records);
+  return records[idx];
 }
 
 export async function deleteRecord(candidateId: string): Promise<void> {

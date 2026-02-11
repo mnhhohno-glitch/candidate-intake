@@ -19,6 +19,9 @@ interface StoredRecord {
   careerAdvisor: string;
   lastOutputAt?: string;
   attachmentSummary?: { pdfName?: string; interviewLogName?: string; flagListName?: string };
+  formUrl?: string;
+  formEditUrl?: string;
+  formId?: string;
 }
 
 export default function RecordDetailPage() {
@@ -46,6 +49,11 @@ export default function RecordDetailPage() {
   const [questionGenLoading, setQuestionGenLoading] = useState(false);
   const [questionGenError, setQuestionGenError] = useState<string | null>(null);
   const [copyToast, setCopyToast] = useState(false);
+  const [formCreateLoading, setFormCreateLoading] = useState(false);
+  const [formCreateError, setFormCreateError] = useState<string | null>(null);
+  const [formResponseUrl, setFormResponseUrl] = useState<string | null>(null);
+  const [formEditUrl, setFormEditUrl] = useState<string | null>(null);
+  const [formUrlCopyToast, setFormUrlCopyToast] = useState(false);
 
   const ACHIEVEMENT_OPTIONS = [
     "営業・販売（数字を追う職種）",
@@ -236,6 +244,60 @@ export default function RecordDetailPage() {
     );
   }, [questionText]);
 
+  const handleCreateGoogleForm = useCallback(async () => {
+    if (!candidateId || !questionText.trim()) return;
+    setFormCreateError(null);
+    setFormCreateLoading(true);
+    setFormResponseUrl(null);
+    setFormEditUrl(null);
+    try {
+      const res = await fetch("/api/intake/create-google-form", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          candidateId,
+          candidateName: record?.candidateName ?? name,
+          questionText: questionText.trim(),
+        }),
+      });
+      const data = (await res.json()) as {
+        responseUrl?: string;
+        editUrl?: string;
+        formId?: string;
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(data.error || "フォームの作成に失敗しました");
+      }
+      if (data.responseUrl) {
+        setFormResponseUrl(data.responseUrl);
+        setFormEditUrl(data.editUrl ?? null);
+      }
+      if (record) {
+        setRecord({
+          ...record,
+          formUrl: data.responseUrl ?? record.formUrl,
+          formEditUrl: data.editUrl ?? record.formEditUrl,
+          formId: data.formId ?? record.formId,
+        });
+      }
+    } catch (e) {
+      setFormCreateError(e instanceof Error ? e.message : "フォームの作成に失敗しました");
+    } finally {
+      setFormCreateLoading(false);
+    }
+  }, [candidateId, questionText, record, name]);
+
+  const handleCopyFormUrl = useCallback((url: string) => {
+    navigator.clipboard.writeText(url).then(
+      () => {
+        setFormUrlCopyToast(true);
+        setTimeout(() => setFormUrlCopyToast(false), 2000);
+      },
+      () => {}
+    );
+  }, []);
+
   const handleReoutput = useCallback(async () => {
     if (!candidateId) return;
     try {
@@ -415,7 +477,7 @@ export default function RecordDetailPage() {
                 className="w-full rounded border border-gray-300 bg-gray-50 px-3 py-2 text-sm font-mono"
                 placeholder="「質問文を生成」を押すとここに表示されます"
               />
-              <div className="mt-2 flex items-center gap-3">
+              <div className="mt-2 flex flex-wrap items-center gap-3">
                 <button
                   type="button"
                   onClick={handleCopyQuestionText}
@@ -427,7 +489,60 @@ export default function RecordDetailPage() {
                 {copyToast && (
                   <span className="text-sm text-green-600">コピーしました</span>
                 )}
+                {questionText.trim() && (
+                  <button
+                    type="button"
+                    onClick={handleCreateGoogleForm}
+                    disabled={formCreateLoading}
+                    className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    {formCreateLoading ? "作成中…" : "Googleフォームを作成"}
+                  </button>
+                )}
               </div>
+              {formCreateError && (
+                <div className="mt-3 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">
+                  {formCreateError}
+                </div>
+              )}
+              {(formResponseUrl || record?.formUrl) && (
+                <div className="mt-4 rounded border border-gray-200 bg-gray-50 p-4">
+                  <h3 className="mb-2 text-sm font-medium text-gray-700">作成済みフォーム（回答用URL・候補者に送付）</h3>
+                  <p className="mb-2 break-all text-sm text-blue-700">
+                    <a
+                      href={formResponseUrl || record?.formUrl || ""}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline"
+                    >
+                      {formResponseUrl || record?.formUrl}
+                    </a>
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleCopyFormUrl(formResponseUrl || record?.formUrl || "")}
+                      className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      URLをコピー
+                    </button>
+                    {formUrlCopyToast && <span className="text-sm text-green-600">コピーしました</span>}
+                  </div>
+                  {(formEditUrl || record?.formEditUrl) && (
+                    <p className="mt-2 text-xs text-gray-500">
+                      編集用:{" "}
+                      <a
+                        href={formEditUrl || record?.formEditUrl || ""}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline"
+                      >
+                        {formEditUrl || record?.formEditUrl}
+                      </a>
+                    </p>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </section>
