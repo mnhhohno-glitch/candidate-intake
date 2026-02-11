@@ -67,7 +67,9 @@ function checkOutputRules(
   const quals = structured.qualifications_list ?? [];
   if (quals.length >= 1) {
     const hasQualificationBlock =
-      output.includes("取得年月を教えてください") || output.includes("資格");
+      output.includes("取得年月を教えてください") ||
+      output.includes("取得年月") ||
+      output.includes("資格");
     if (!hasQualificationBlock) {
       return { passed: false, reason: "qualifications_list>=1 but output missing qualification block" };
     }
