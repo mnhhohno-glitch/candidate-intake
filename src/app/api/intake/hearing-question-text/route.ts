@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateWithGemini, parseJsonResponse } from "@/services/geminiClient";
+import { generateWithGemini, generateWithGeminiWithImage, generateWithGeminiWithPdf, parseJsonResponse } from "@/services/geminiClient";
 import {
   buildHearingQuestionTextPrompt,
   buildStructuredExtractPrompt,
   type StructuredExtractResult,
 } from "@/services/loadSpec";
-import { extractTextFromPdf } from "@/services/extractText";
+import { renderPdfToPngBase64List } from "@/services/pdfToImages";
 
 const JOB_TYPE_UNSPECIFIED_OUTPUT =
   "応募先の職種を指定してください：「 」に入力してください";
@@ -109,16 +109,69 @@ export async function POST(request: NextRequest) {
       console.warn("[hearing-question-text] PDF rejected: size=", pdfFile.size, "type=", pdfFile.type);
     }
 
+    // PDF→画像→Gemini Vision で抽出（参考: 他プロジェクトの pdf2image + Vision 構成）。確定的な出力のため temperature=0.1
+    const PDF_EXTRACT_SYSTEM =
+      "あなたは画像に写った文書を読み取り、その内容をプレーンテキストで抽出する役割です。ルール: 画像に明記されている内容のみを抽出し、推測は禁止。説明や前置きは一切出力せず、読み取ったテキストのみをそのまま出力してください。";
+    const PDF_EXTRACT_USER =
+      "この画像から読み取れるテキストをすべて抽出し、プレーンテキストのみで返してください。説明は不要です。";
+
     let resumePdfText = "";
     if (pdfReceived && pdfFile) {
       const buf = Buffer.from(await pdfFile.arrayBuffer());
-      resumePdfText = await extractTextFromPdf(buf);
+      const extractStartMs = Date.now();
+      try {
+        const images = await renderPdfToPngBase64List(buf, 10);
+        if (images.length > 0) {
+          const pageTexts: string[] = [];
+          for (let i = 0; i < images.length; i++) {
+            const pageText = await generateWithGeminiWithImage({
+              systemInstruction: PDF_EXTRACT_SYSTEM,
+              userPrompt: PDF_EXTRACT_USER,
+              imageBase64: images[i],
+              responseMimeType: "text/plain",
+              maxOutputTokens: 8192,
+              temperature: 0.1,
+            });
+            pageTexts.push((pageText ?? "").trim());
+          }
+          resumePdfText = pageTexts.join("\n\n").trim();
+          console.log(
+            "[hearing-question-text] Gemini Vision extract (pages=",
+            images.length,
+            ") done in",
+            Date.now() - extractStartMs,
+            "ms, chars=",
+            resumePdfText.length
+          );
+        }
+        if (resumePdfText.length === 0) {
+          const pdfBase64 = buf.toString("base64");
+          resumePdfText = await generateWithGeminiWithPdf({
+            systemInstruction: PDF_EXTRACT_SYSTEM,
+            userPrompt: "添付のPDFから読み取れるテキストをすべて抽出し、プレーンテキストのみで返してください。説明は不要です。",
+            pdfBase64,
+            responseMimeType: "text/plain",
+            maxOutputTokens: 8192,
+            temperature: 0.1,
+          });
+          resumePdfText = (resumePdfText ?? "").trim();
+          console.log("[hearing-question-text] Gemini PDF inline fallback done, chars=", resumePdfText.length);
+        }
+      } catch (e) {
+        console.error("[hearing-question-text] Gemini PDF extract failed:", e);
+        return NextResponse.json(
+          {
+            error: "PDFの読み取りに失敗しました。しばらくしてから再試行するか、別のPDFでお試しください。",
+            detail: e instanceof Error ? e.message : String(e),
+          },
+          { status: 500 }
+        );
+      }
       if (resumePdfText.length === 0) {
         console.error("[hearing-question-text] PDF extraction returned 0 characters. size=", buf.length);
         return NextResponse.json(
           {
-            error:
-              "PDFからテキストを1文字も抽出できませんでした。テキストが選択・コピーできる形式のPDFでお試しください。スキャン画像のみのPDFや、形式・保護の影響で読み取れない場合があります。",
+            error: "PDFからテキストを読み取れませんでした。別のPDFでお試しください。",
             detail: "抽出結果が0文字のため処理を中断しました。",
           },
           { status: 400 }
@@ -173,6 +226,7 @@ export async function POST(request: NextRequest) {
         userPrompt: stepAPrompt.userPrompt,
         responseMimeType: "application/json",
         maxOutputTokens: 4096,
+        temperature: 0.1,
       });
       const parsed = parseJsonResponse<StructuredExtractResult>(stepARaw);
       structuredExtract = {
@@ -220,6 +274,7 @@ export async function POST(request: NextRequest) {
         userPrompt,
         responseMimeType: "text/plain",
         maxOutputTokens: 8192,
+        temperature: 0.1,
       });
       const stepBLatencyMs = Date.now() - stepBStart;
       console.log("[hearing-question-text] step_b done latency_ms=", stepBLatencyMs, "outputChars=", (raw ?? "").length);
