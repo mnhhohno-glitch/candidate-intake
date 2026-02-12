@@ -105,9 +105,8 @@ ${interviewMemoText || "(なし)"}
   return { systemInstruction, userPrompt };
 }
 
-/** job_type 未指定時は呼び出し側で1行のみ返すこと。指定時のみ本関数でプロンプトを組み立てる。base_prompt 本文は変更しない。achievement_category 指定時は追加実績ヒアリングを末尾に結合。extraUserPromptSuffix は再試行時に資格ブロック必須などを追記する用。 */
+/** 質問文テキスト用プロンプトを組み立てる。base_prompt 本文は変更しない。achievement_category 指定時は追加実績ヒアリングを末尾に結合。extraUserPromptSuffix は再試行時に資格ブロック必須などを追記する用。 */
 export function buildHearingQuestionTextPrompt(
-  jobType: string,
   resumePdfText: string,
   interviewMemoText: string,
   structuredExtract?: StructuredExtractResult | null,
@@ -141,11 +140,7 @@ ${needHighSchoolBlock ? "\n【高校】最終学歴が高校卒以外（highest_
 `
       : "";
 
-  const userPrompt = `${structuredBlock}【job_type】
-${jobType}
-${achievementCategory ? `\n【achievement_category】\n${achievementCategory}\n【必須】出力順4「追加実績ヒアリング」を省略しないこと。上記プロンプトの「追加実績ヒアリングロジック」の該当カテゴリ（${achievementCategory}）の質問文を、高校・資格・住所のあと、意識・自己PR・証明写真の前にそのまま全て出力すること。\n` : ""}
-
-【候補者WEB履歴書PDF抽出テキスト】
+  const userPrompt = `${structuredBlock}${achievementCategory ? `【achievement_category】\n${achievementCategory}\n【必須】出力順4「追加実績ヒアリング」を省略しないこと。上記プロンプトの「追加実績ヒアリングロジック」の該当カテゴリ（${achievementCategory}）の質問文を、高校・資格・住所のあと、意識・自己PR・証明写真の前にそのまま全て出力すること。\n\n` : ""}【候補者WEB履歴書PDF抽出テキスト】
 ${resumePdfText || "(なし)"}
 
 【面談メモ】

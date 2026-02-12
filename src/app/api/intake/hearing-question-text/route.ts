@@ -8,9 +8,6 @@ import {
 } from "@/services/loadSpec";
 import { renderPdfToPngBase64List } from "@/services/pdfToImages";
 
-const JOB_TYPE_UNSPECIFIED_OUTPUT =
-  "応募先の職種を指定してください：「 」に入力してください";
-
 /**
  * Phase1: 抽出品質ゲート。不足時は422。
  * 判定対象は「PDF 1通の抽出テキスト全体の文字数」のみ。
@@ -161,22 +158,11 @@ function checkOutputRules(
 
 /**
  * 応募資料作成・追加情報ヒアリング用「質問文テキスト」のみを生成する。
- * - job_type 未指定時は上記1行のみを返す（処理は実行しない）。
- * - 出力は候補者に送る質問本文のみ（GoogleフォームURL・内部メモ・見出しは含めない）。
+ * 出力は候補者に送る質問本文のみ（GoogleフォームURL・内部メモ・見出しは含めない）。
  */
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
-    const jobTypeRaw = formData.get("job_type");
-    const jobType =
-      typeof jobTypeRaw === "string" ? jobTypeRaw.trim() : "";
-
-    if (!jobType) {
-      return NextResponse.json({
-        candidate_question_text_only: JOB_TYPE_UNSPECIFIED_OUTPUT,
-      });
-    }
-
     const achievementCategoryRaw = formData.get("achievement_category");
     const achievementCategory =
       typeof achievementCategoryRaw === "string" ? achievementCategoryRaw.trim() : "";
@@ -369,7 +355,6 @@ export async function POST(request: NextRequest) {
 
     const runStepB = async (extraUserPromptSuffix?: string): Promise<string> => {
       const { systemInstruction, userPrompt } = buildHearingQuestionTextPrompt(
-        jobType,
         resumePdfText,
         interviewMemoText,
         structuredExtract,
@@ -435,10 +420,6 @@ export async function POST(request: NextRequest) {
         },
         { status: 500 }
       );
-    }
-
-    if (!text) {
-      text = JOB_TYPE_UNSPECIFIED_OUTPUT;
     }
 
     const candidateNameRaw = formData.get("candidate_name");

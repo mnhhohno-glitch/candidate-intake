@@ -10,9 +10,6 @@ import type { GoogleFormDefinition } from "@/types/googleForm";
 
 type PipelineStep = "idle" | "analyzing" | "questions" | "excel" | "question_and_form" | "done" | "error";
 
-const JOB_TYPE_UNSPECIFIED_MESSAGE =
-  "応募先の職種を指定してください：「 」に入力してください";
-
 interface StoredRecord {
   candidateId: string;
   candidateName: string;
@@ -43,7 +40,6 @@ export default function RecordDetailPage() {
   const [excelBlobUrl, setExcelBlobUrl] = useState<string | null>(null);
   const [excelDownloadName, setExcelDownloadName] = useState("");
 
-  const [jobType, setJobType] = useState("");
   const [achievementCategory, setAchievementCategory] = useState("");
   const [questionText, setQuestionText] = useState("");
   const [questionGenError, setQuestionGenError] = useState<string | null>(null);
@@ -53,6 +49,8 @@ export default function RecordDetailPage() {
   const [formResponseUrl, setFormResponseUrl] = useState<string | null>(null);
   const [formEditUrl, setFormEditUrl] = useState<string | null>(null);
   const [formUrlCopyToast, setFormUrlCopyToast] = useState(false);
+  type LeftMenuKey = "detail" | "upload" | "output";
+  const [activeMenu, setActiveMenu] = useState<LeftMenuKey>("upload");
 
   const ACHIEVEMENT_OPTIONS = [
     "営業・販売（数字を追う職種）",
@@ -115,11 +113,6 @@ export default function RecordDetailPage() {
       setError("PDF・面談ログ・フラグリストのいずれか1つ以上をアップロードしてください。");
       return;
     }
-    const jobTypeTrim = jobType.trim();
-    if (!jobTypeTrim) {
-      setError("出力開始には応募先職種の入力が必須です。");
-      return;
-    }
     if (!achievementCategory || !ACHIEVEMENT_OPTIONS.includes(achievementCategory as (typeof ACHIEVEMENT_OPTIONS)[number])) {
       setError("実績ヒアリングの職種カテゴリを選択してください。");
       return;
@@ -136,6 +129,7 @@ export default function RecordDetailPage() {
     setFormResponseUrl(null);
     setFormEditUrl(null);
     setStep("analyzing");
+    setActiveMenu("output");
     setCommonAnalysis(null);
     setQuestions(null);
     if (excelBlobUrl) {
@@ -211,7 +205,6 @@ export default function RecordDetailPage() {
       let generatedQuestionText = "";
       try {
         const qtFormData = new FormData();
-        qtFormData.append("job_type", jobTypeTrim);
         qtFormData.append("achievement_category", achievementCategory);
         if (record.candidateName) qtFormData.append("candidate_name", record.candidateName);
         qtFormData.append("pdf", files.pdf!);
@@ -225,7 +218,7 @@ export default function RecordDetailPage() {
           throw new Error((qtData as { error?: string }).error || "質問文の生成に失敗しました");
         }
         const text = (qtData as { candidate_question_text_only?: string }).candidate_question_text_only;
-        generatedQuestionText = typeof text === "string" ? text : JOB_TYPE_UNSPECIFIED_MESSAGE;
+        generatedQuestionText = typeof text === "string" ? text : "";
         setQuestionText(generatedQuestionText);
       } catch (e) {
         setQuestionGenError(e instanceof Error ? e.message : "質問文の生成に失敗しました");
@@ -279,7 +272,7 @@ export default function RecordDetailPage() {
       setError(e instanceof Error ? e.message : "不明なエラー");
       setStep("error");
     }
-  }, [record, files, excelBlobUrl, jobType, achievementCategory, name]);
+  }, [record, files, excelBlobUrl, achievementCategory, name]);
 
   const handleCopyQuestionText = useCallback(() => {
     if (!questionText) return;
@@ -340,7 +333,6 @@ export default function RecordDetailPage() {
   const hasFiles = !!(files.pdf || files.interviewLog || files.flagList);
   const canStartOutput =
     hasFiles &&
-    !!jobType.trim() &&
     !!achievementCategory &&
     ACHIEVEMENT_OPTIONS.includes(achievementCategory as (typeof ACHIEVEMENT_OPTIONS)[number]);
 
@@ -373,251 +365,284 @@ export default function RecordDetailPage() {
             ? "質問文・フォーム作成中…"
             : null;
 
+  const menuItems: { key: LeftMenuKey; label: string; sub: string }[] = [
+    { key: "detail", label: "詳細", sub: "基本情報・保存" },
+    { key: "upload", label: "アップロード", sub: "ファイルを投入" },
+    { key: "output", label: "出力結果", sub: "Excel・質問文・フォーム" },
+  ];
+
   return (
-    <main className="min-h-screen px-4 py-6">
-      <div className="mx-auto max-w-6xl">
-        <Link href="/" className="mb-4 inline-flex text-sm text-blue-600 hover:underline">
-          ← トップへ戻る
-        </Link>
-        <div className="flex flex-col gap-6 md:flex-row md:min-h-0 md:gap-8">
-          {/* 左カラム: 入力エリア */}
-        <div className="flex min-w-0 flex-1 flex-col gap-4 md:max-w-[420px] md:flex-shrink-0">
-          <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-            <h1 className="mb-3 text-lg font-semibold text-gray-900">詳細</h1>
-            <div className="space-y-3">
-              <div>
-                <label className="mb-0.5 block text-sm font-medium text-gray-600">求職者ID</label>
-                <p className="rounded border border-gray-200 bg-gray-50 px-2 py-1.5 text-sm text-gray-700">
-                  {record.candidateId}
-                </p>
-              </div>
-              <div>
-                <label htmlFor="detail-name" className="mb-0.5 block text-sm font-medium text-gray-600">氏名</label>
-                <input
-                  id="detail-name"
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                />
-              </div>
-              <div>
-                <label htmlFor="detail-advisor" className="mb-0.5 block text-sm font-medium text-gray-600">担当CA</label>
-                <select
-                  id="detail-advisor"
-                  value={advisor}
-                  onChange={(e) => setAdvisor(e.target.value)}
-                  className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                >
-                  {CAREER_ADVISORS.map((a) => (
-                    <option key={a} value={a}>{a}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
-                >
-                  保存
-                </button>
-                {saveMessage === "saved" && <span className="text-xs text-green-600">保存しました</span>}
-                {saveMessage === "error" && <span className="text-xs text-red-600">保存に失敗しました</span>}
-              </div>
+    <main className="min-h-screen bg-gray-50">
+      {/* 上部: 戻るリンク + 対象求職者情報バー */}
+      <header className="border-b border-gray-200 bg-white">
+        <div className="mx-auto max-w-7xl px-4 py-3">
+          <Link href="/" className="inline-flex text-sm text-blue-600 hover:underline">
+            ← トップへ戻る
+          </Link>
+          <div className="mt-3 rounded-lg bg-blue-50 px-4 py-3 text-sm text-gray-800">
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-1">
+              <span>
+                <span className="font-medium">対象求職者：</span>
+                {name || "—"} （ID: {record.candidateId}）
+              </span>
+              <span>
+                <span className="font-medium">キャリアアドバイザー：</span>
+                {advisor || "—"}
+              </span>
+              <span>
+                <span className="font-medium">レコードID：</span>
+                {record.candidateId}
+              </span>
             </div>
-          </section>
-
-          <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-2 text-base font-semibold text-gray-900">ファイル投入</h2>
-            <p className="mb-3 text-xs text-gray-500">PDF・面談ログ・フラグリストをアップロード</p>
-            <UploadPanel files={files} onFilesChange={setFiles} disabled={running} showTitle={false} />
-            {!hasFiles && step === "idle" && (
-              <p className="mt-2 text-xs text-amber-700">ファイルを選択してください。</p>
-            )}
-          </section>
-
-          <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-2 text-base font-semibold text-gray-900">出力に必要な入力</h2>
-            <div className="space-y-3">
-              <div>
-                <label htmlFor="job-type" className="mb-0.5 block text-sm font-medium text-gray-600">
-                  応募先の職種 <span className="text-red-600">必須</span>
-                </label>
-                <input
-                  id="job-type"
-                  type="text"
-                  value={jobType}
-                  onChange={(e) => {
-                    setJobType(e.target.value);
-                    setQuestionGenError(null);
-                  }}
-                  placeholder="例：営業、事務"
-                  className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                />
-              </div>
-              <div>
-                <label htmlFor="achievement-category" className="mb-0.5 block text-sm font-medium text-gray-600">
-                  実績ヒアリングの職種カテゴリ <span className="text-red-600">必須</span>
-                </label>
-                <select
-                  id="achievement-category"
-                  value={achievementCategory}
-                  onChange={(e) => {
-                    setAchievementCategory(e.target.value);
-                    setQuestionGenError(null);
-                  }}
-                  className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                >
-                  <option value="">選択してください</option>
-                  {ACHIEVEMENT_OPTIONS.map((opt) => (
-                    <option key={opt} value={opt}>
-                      {opt}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </section>
-
-          <div className="flex flex-wrap gap-2">
-            {record.lastOutputAt && (
-              <button
-                type="button"
-                onClick={handleReoutput}
-                disabled={running}
-                className="rounded-lg bg-gray-700 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-              >
-                再出力（キャッシュ）
-              </button>
-            )}
-            {step === "idle" && (
-              <button
-                type="button"
-                onClick={runPipeline}
-                disabled={!canStartOutput}
-                className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                出力開始
-              </button>
-            )}
           </div>
         </div>
+      </header>
 
-        {/* 右カラム: 出力結果エリア */}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col md:min-h-[calc(100vh-8rem)]">
-          <section className="flex flex-1 flex-col rounded-lg border border-gray-200 bg-white p-4 shadow-sm md:min-h-0">
-            <h2 className="mb-3 text-base font-semibold text-gray-900">出力結果</h2>
-            {running && (
-              <div className="rounded border border-blue-200 bg-blue-50 p-4 text-sm text-gray-800">
-                <p className="font-medium">{stepLabel}</p>
-                <p className="mt-1 text-xs text-gray-500">しばらくお待ちください。</p>
-              </div>
-            )}
-            {step === "error" && error && (
-              <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">
-                {error}
-              </div>
-            )}
-            {step === "done" && (
-              <div className="flex flex-1 flex-col gap-4 overflow-auto md:min-h-0">
-                {excelBlobUrl && (
-                  <div>
-                    <p className="mb-2 text-sm font-medium text-green-800">Excel</p>
-                    <button
-                      type="button"
-                      onClick={handleDownloadExcel}
-                      className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-                    >
-                      Excel をダウンロード
-                    </button>
-                  </div>
-                )}
+      <div className="mx-auto flex max-w-7xl flex-col md:flex-row md:min-h-[calc(100vh-10rem)]">
+        {/* 左サイドメニュー */}
+        <nav className="w-full border-b border-gray-200 bg-white md:w-56 md:flex-shrink-0 md:border-b-0 md:border-r">
+          <ul className="flex flex-row gap-0 md:flex-col md:py-4">
+            {menuItems.map(({ key, label, sub }) => (
+              <li key={key}>
+                <button
+                  type="button"
+                  onClick={() => setActiveMenu(key)}
+                  className={`w-full px-4 py-3 text-left text-sm md:py-2.5 md:pl-4 md:pr-3 ${
+                    activeMenu === key
+                      ? "border-b-2 border-blue-600 bg-blue-50 text-blue-800 md:border-b-0 md:border-r-2 md:bg-blue-50"
+                      : "border-b border-gray-100 text-gray-700 hover:bg-gray-50 md:border-b-0"
+                  }`}
+                >
+                  <span className="font-medium">{label}</span>
+                  <span className="ml-2 text-xs text-gray-500 md:block md:ml-0 md:mt-0.5">{sub}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </nav>
+
+        {/* メインコンテンツ */}
+        <div className="min-w-0 flex-1 p-4 md:p-6">
+          {activeMenu === "detail" && (
+            <section className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+              <h1 className="mb-4 text-lg font-semibold text-gray-900">詳細</h1>
+              <div className="space-y-4">
                 <div>
-                  <p className="mb-1 text-sm font-medium text-gray-700">生成された質問文（候補者送付用）</p>
-                  {questionGenError && (
-                    <div className="mb-2 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-800" role="alert">
-                      {questionGenError}
-                    </div>
-                  )}
-                  <textarea
-                    readOnly
-                    value={questionText}
-                    rows={8}
-                    className="w-full rounded border border-gray-300 bg-gray-50 px-3 py-2 text-sm font-mono"
-                    placeholder="質問文はここに表示されます"
-                  />
-                  <div className="mt-2 flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleCopyQuestionText}
-                      disabled={!questionText}
-                      className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                    >
-                      コピー
-                    </button>
-                    {copyToast && <span className="text-xs text-green-600">コピーしました</span>}
-                  </div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">求職者ID</label>
+                  <p className="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                    {record.candidateId}
+                  </p>
                 </div>
                 <div>
-                  <p className="mb-1 text-sm font-medium text-gray-700">GoogleフォームURL</p>
-                  {formCreateError && (
-                    <div className="mb-2 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-800" role="alert">
-                      {formCreateError}
+                  <label htmlFor="detail-name" className="mb-1 block text-sm font-medium text-gray-700">氏名</label>
+                  <input
+                    id="detail-name"
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full max-w-md rounded border border-gray-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="detail-advisor" className="mb-1 block text-sm font-medium text-gray-700">担当キャリアアドバイザー</label>
+                  <select
+                    id="detail-advisor"
+                    value={advisor}
+                    onChange={(e) => setAdvisor(e.target.value)}
+                    className="w-full max-w-md rounded border border-gray-300 px-3 py-2 text-sm"
+                  >
+                    {CAREER_ADVISORS.map((a) => (
+                      <option key={a} value={a}>{a}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleSave}
+                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                  >
+                    保存
+                  </button>
+                  {saveMessage === "saved" && <span className="text-sm text-green-600">保存しました</span>}
+                  {saveMessage === "error" && <span className="text-sm text-red-600">保存に失敗しました</span>}
+                </div>
+              </div>
+            </section>
+          )}
+
+          {activeMenu === "upload" && (
+            <section className="space-y-6">
+              <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+                <h2 className="mb-2 text-lg font-semibold text-gray-900">ファイルアップロード</h2>
+                <p className="mb-4 text-sm text-gray-500">PDF・面談ログ・フラグリストをドラッグ＆ドロップまたはクリックで選択</p>
+                <UploadPanel files={files} onFilesChange={setFiles} disabled={running} showTitle={false} />
+                {!hasFiles && step === "idle" && (
+                  <p className="mt-3 text-sm text-amber-700">ファイルを選択してください。</p>
+                )}
+              </div>
+              <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+                <h2 className="mb-2 text-base font-semibold text-gray-900">出力に必要な入力</h2>
+                <div className="max-w-md">
+                  <label htmlFor="achievement-category" className="mb-1 block text-sm font-medium text-gray-700">
+                    実績ヒアリングの職種カテゴリ <span className="text-red-600">必須</span>
+                  </label>
+                  <select
+                    id="achievement-category"
+                    value={achievementCategory}
+                    onChange={(e) => {
+                      setAchievementCategory(e.target.value);
+                      setQuestionGenError(null);
+                    }}
+                    className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                  >
+                    <option value="">選択してください</option>
+                    {ACHIEVEMENT_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  {record.lastOutputAt && (
+                    <button
+                      type="button"
+                      onClick={handleReoutput}
+                      disabled={running}
+                      className="rounded-lg bg-gray-700 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                    >
+                      再出力（キャッシュ）
+                    </button>
+                  )}
+                  {step === "idle" && (
+                    <button
+                      type="button"
+                      onClick={runPipeline}
+                      disabled={!canStartOutput}
+                      className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      出力開始
+                    </button>
+                  )}
+                </div>
+              </div>
+            </section>
+          )}
+
+          {activeMenu === "output" && (
+            <section className="flex flex-col rounded-lg border border-gray-200 bg-white p-6 shadow-sm md:min-h-0">
+              <h2 className="mb-4 text-lg font-semibold text-gray-900">出力結果</h2>
+              {running && (
+                <div className="rounded border border-blue-200 bg-blue-50 p-4 text-sm text-gray-800">
+                  <p className="font-medium">{stepLabel}</p>
+                  <p className="mt-1 text-xs text-gray-500">しばらくお待ちください。</p>
+                </div>
+              )}
+              {step === "error" && error && (
+                <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">
+                  {error}
+                </div>
+              )}
+              {step === "done" && (
+                <div className="flex flex-col gap-6 overflow-auto">
+                  {excelBlobUrl && (
+                    <div>
+                      <p className="mb-2 text-sm font-medium text-green-800">Excel</p>
+                      <button
+                        type="button"
+                        onClick={handleDownloadExcel}
+                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                      >
+                        Excel をダウンロード
+                      </button>
                     </div>
                   )}
-                  {formCreateWarning && (
-                    <div className="mb-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800" role="status">
-                      {formCreateWarning}
-                    </div>
-                  )}
-                  {(formResponseUrl || record?.formUrl) ? (
-                    <div className="rounded border border-gray-200 bg-gray-50 p-3">
-                      <p className="mb-2 break-all text-sm text-blue-700">
-                        <a
-                          href={formResponseUrl || record?.formUrl || ""}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="underline"
-                        >
-                          {formResponseUrl || record?.formUrl}
-                        </a>
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleCopyFormUrl(formResponseUrl || record?.formUrl || "")}
-                          className="rounded border border-gray-300 bg-white px-2 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                        >
-                          URLをコピー
-                        </button>
-                        {formUrlCopyToast && <span className="text-xs text-green-600">コピーしました</span>}
+                  <div>
+                    <p className="mb-2 text-sm font-medium text-gray-700">生成された質問文（候補者送付用）</p>
+                    {questionGenError && (
+                      <div className="mb-2 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-800" role="alert">
+                        {questionGenError}
                       </div>
-                      {(formEditUrl || record?.formEditUrl) && (
-                        <p className="mt-2 text-xs text-gray-500">
-                          編集用:{" "}
+                    )}
+                    <textarea
+                      readOnly
+                      value={questionText}
+                      rows={10}
+                      className="w-full rounded border border-gray-300 bg-gray-50 px-3 py-2 text-sm font-mono"
+                      placeholder="質問文はここに表示されます"
+                    />
+                    <div className="mt-2 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleCopyQuestionText}
+                        disabled={!questionText}
+                        className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        コピー
+                      </button>
+                      {copyToast && <span className="text-xs text-green-600">コピーしました</span>}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="mb-2 text-sm font-medium text-gray-700">GoogleフォームURL</p>
+                    {formCreateError && (
+                      <div className="mb-2 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-800" role="alert">
+                        {formCreateError}
+                      </div>
+                    )}
+                    {formCreateWarning && (
+                      <div className="mb-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800" role="status">
+                        {formCreateWarning}
+                      </div>
+                    )}
+                    {(formResponseUrl || record?.formUrl) ? (
+                      <div className="rounded border border-gray-200 bg-gray-50 p-3">
+                        <p className="mb-2 break-all text-sm text-blue-700">
                           <a
-                            href={formEditUrl || record?.formEditUrl || ""}
+                            href={formResponseUrl || record?.formUrl || ""}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="underline"
                           >
-                            {formEditUrl || record?.formEditUrl}
+                            {formResponseUrl || record?.formUrl}
                           </a>
                         </p>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-500">フォームが未作成の場合は質問文生成に失敗している可能性があります。</p>
-                  )}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleCopyFormUrl(formResponseUrl || record?.formUrl || "")}
+                            className="rounded border border-gray-300 bg-white px-2 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                          >
+                            URLをコピー
+                          </button>
+                          {formUrlCopyToast && <span className="text-xs text-green-600">コピーしました</span>}
+                        </div>
+                        {(formEditUrl || record?.formEditUrl) && (
+                          <p className="mt-2 text-xs text-gray-500">
+                            編集用:{" "}
+                            <a
+                              href={formEditUrl || record?.formEditUrl || ""}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="underline"
+                            >
+                              {formEditUrl || record?.formEditUrl}
+                            </a>
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-500">フォームが未作成の場合は質問文生成に失敗している可能性があります。</p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
-            {step === "idle" && !running && (
-              <p className="text-sm text-gray-500">左の入力エリアでファイルを添付し、応募先職種・職種カテゴリを入力して「出力開始」を押すと、Excel・質問文・GoogleフォームURLがここに表示されます。</p>
-            )}
-          </section>
-        </div>
+              )}
+              {step === "idle" && !running && (
+                <p className="text-sm text-gray-500">「アップロード」でファイルを添付し、実績ヒアリングの職種カテゴリを選択して「出力開始」を押すと、Excel・質問文・GoogleフォームURLがここに表示されます。</p>
+              )}
+            </section>
+          )}
         </div>
       </div>
     </main>
