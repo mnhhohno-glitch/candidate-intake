@@ -142,7 +142,10 @@ export default function RegisterPage() {
       }
       const blob = await excelRes.blob();
       const url = URL.createObjectURL(blob);
-      const recommended = excelRes.headers.get("X-Recommended-Filename")?.trim();
+      const recommendedRaw = excelRes.headers.get("X-Recommended-Filename")?.trim();
+      const recommended = recommendedRaw
+        ? (recommendedRaw.includes("%") ? decodeURIComponent(recommendedRaw) : recommendedRaw)
+        : "";
       const disp = excelRes.headers.get("Content-Disposition");
       const match = disp?.match(/filename\*?=(?:UTF-8'')?([^;]+)/);
       const fromDisp = match ? decodeURIComponent(match[1].replace(/^["']|["']$/g, "").trim()) : "";

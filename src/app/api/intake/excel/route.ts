@@ -99,6 +99,7 @@ export async function POST(request: NextRequest) {
     const asciiFallback = "FM_import.xlsx";
     const contentDisposition =
       `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(filenameJa)}`;
+    const recommendedEncoded = encodeURIComponent(filenameJa);
 
     return new NextResponse(new Uint8Array(buffer), {
       status: 200,
@@ -106,7 +107,7 @@ export async function POST(request: NextRequest) {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "Content-Disposition": contentDisposition,
         "Content-Length": String(buffer.length),
-        "X-Recommended-Filename": filenameJa,
+        "X-Recommended-Filename": recommendedEncoded,
       },
     });
   } catch (error) {
