@@ -43,12 +43,83 @@ function normalizeCommonAnalysis(parsed: unknown): CommonAnalysisJson {
     work_history = Array.isArray(raw) ? raw : [];
   }
   extracted_facts.work_history = work_history;
+  if (extracted_facts.tense === undefined && (extracted_facts as Record<string, unknown>).時制 !== undefined) {
+    extracted_facts.tense = (extracted_facts as Record<string, unknown>).時制 as string;
+  }
+  if (!Array.isArray(extracted_facts.reading_targets)) {
+    const alt = (extracted_facts as Record<string, unknown>).読むべき内容;
+    extracted_facts.reading_targets = Array.isArray(alt) ? (alt as string[]) : [];
+  }
+  if (extracted_facts.evidence_map !== undefined && (typeof extracted_facts.evidence_map !== "object" || Array.isArray(extracted_facts.evidence_map))) {
+    delete extracted_facts.evidence_map;
+  }
 
   const filemaker_mapping = typeof o.filemaker_mapping === "object" && o.filemaker_mapping !== null && !Array.isArray(o.filemaker_mapping)
     ? o.filemaker_mapping as Record<string, unknown>
     : {};
   const missing_items = Array.isArray(o.missing_items) ? o.missing_items : [];
   return { extracted_facts, filemaker_mapping, missing_items } as CommonAnalysisJson;
+}
+
+/** 退職理由・転職理由が filemaker_mapping と work_history の両方で空かどうか */
+function isResignationEmpty(result: CommonAnalysisJson): boolean {
+  const fm = result.filemaker_mapping as Record<string, unknown>;
+  const fmVal = (key: string) => {
+    const x = fm[key];
+    return x != null && String(x).trim() !== "";
+  };
+  if (fmVal("転職時期メモ") || fmVal("転職活動期間メモ")) return false;
+  const wh = result.extracted_facts?.work_history;
+  if (!Array.isArray(wh)) return true;
+  for (const item of wh) {
+    const r = item as Record<string, unknown>;
+    if (
+      (r.退職理由_大 != null && String(r.退職理由_大).trim() !== "") ||
+      (r.退職理由_中 != null && String(r.退職理由_中).trim() !== "") ||
+      (r.退職理由_小 != null && String(r.退職理由_小).trim() !== "") ||
+      (r.転職理由メモ != null && String(r.転職理由メモ).trim() !== "") ||
+      (r.resignation_reason != null && String(r.resignation_reason).trim() !== "")
+    )
+      return false;
+  }
+  return true;
+}
+
+/** 2パス目の結果で退職理由関連を1パス目にマージする */
+function mergeResignationFromSecond(
+  first: CommonAnalysisJson,
+  second: CommonAnalysisJson
+): void {
+  const fm1 = first.filemaker_mapping as Record<string, unknown>;
+  const fm2 = second.filemaker_mapping as Record<string, unknown>;
+  const setIfEmpty = (key: string) => {
+    const v2 = fm2[key];
+    if (v2 != null && String(v2).trim() !== "" && (fm1[key] == null || String(fm1[key]).trim() === "")) {
+      fm1[key] = v2;
+    }
+  };
+  setIfEmpty("転職時期メモ");
+  setIfEmpty("転職活動期間メモ");
+  const wh2 = second.extracted_facts?.work_history;
+  const wh1 = first.extracted_facts?.work_history;
+  if (Array.isArray(wh2) && Array.isArray(wh1) && wh2.length === wh1.length) {
+    const keys = ["退職理由_大", "退職理由_中", "退職理由_小", "転職理由メモ", "resignation_reason"];
+    for (let i = 0; i < wh1.length; i++) {
+      const a = wh1[i] as Record<string, unknown>;
+      const b = wh2[i] as Record<string, unknown>;
+      for (const k of keys) {
+        const bv = b[k];
+        if (bv != null && String(bv).trim() !== "" && (a[k] == null || String(a[k]).trim() === "")) {
+          a[k] = bv;
+        }
+      }
+    }
+  } else if (Array.isArray(wh2) && wh2.length > 0) {
+    first.extracted_facts.work_history = wh2;
+  }
+  if (second.extracted_facts?.tense != null && String(second.extracted_facts.tense).trim() !== "" && (first.extracted_facts.tense == null || String(first.extracted_facts.tense).trim() === "")) {
+    first.extracted_facts.tense = second.extracted_facts.tense;
+  }
 }
 
 function logInvalidStructure(parsed: unknown): void {
@@ -144,7 +215,31 @@ export async function POST(request: NextRequest) {
         const normalized = normalizeCommonAnalysis(parsed);
         if (isValidCommonAnalysis(normalized)) {
           normalized.extracted_facts.candidate_no = registeredCandidateId!;
-          const geminiTimeMs = Date.now() - analyzeStart;
+          let geminiTimeMs = Date.now() - analyzeStart;
+          if (interviewLog.trim().length > 100 && isResignationEmpty(normalized)) {
+            console.log("[intake/analyze] Resignation empty despite interview log — running 2nd pass (resignation re-extract)");
+            const secondPassSuffix = `
+
+【2パス目・退職理由の再抽出】
+上記の面談メモを再読し、退職理由・転職理由に該当する発話が1つでもあれば、filemaker_mapping（転職時期メモ・転職活動期間メモ等）または work_history の退職理由_大/中/小・転職理由メモに必ず反映してください。該当する発話が本当に無い場合のみ空のままにしてください。出力は同じ共通解析JSON形式で返してください。`;
+            try {
+              const raw2 = await generateWithGemini({
+                systemInstruction,
+                userPrompt: userPrompt + secondPassSuffix,
+                responseMimeType: "application/json",
+                maxOutputTokens: 16384,
+              });
+              const parsed2 = parseJsonResponse<unknown>(raw2);
+              const second = normalizeCommonAnalysis(parsed2);
+              if (isValidCommonAnalysis(second)) {
+                mergeResignationFromSecond(normalized, second);
+                geminiTimeMs = Date.now() - analyzeStart;
+                console.log(`[intake/analyze] 2nd pass merged in ${Date.now() - analyzeStart - geminiTimeMs}ms`);
+              }
+            } catch (e2) {
+              console.warn("[intake/analyze] 2nd pass failed, using 1st result:", e2 instanceof Error ? e2.message : String(e2));
+            }
+          }
           console.log(`[intake/analyze] Gemini done in ${geminiTimeMs}ms`);
           return NextResponse.json({
             ...normalized,

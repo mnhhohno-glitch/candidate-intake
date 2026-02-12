@@ -81,8 +81,17 @@ var PHOTO_OPTIONS = [
 ];
 
 var ACHIEVEMENT_ANNOTATION = "（※不明な場合は空白で構いません）";
+/** 業務内容の全質問に付与する注釈（要件③） */
+var BUSINESS_ANNOTATION = "該当するものもしくは不明の場合は空白で構いません";
 var QUALIFICATION_EXTRA_DESC =
   "他に追加で記載する資格がある場合は資格名：取得年月を追加記入してください。";
+
+/** カテゴリー枠（説明のみ）の文言 */
+var SECTION_HEADER_HIGH_SCHOOL = "高校についてお尋ねします";
+var SECTION_HEADER_QUALIFICATION = "資格についてお尋ねします";
+var SECTION_HEADER_BUSINESS = "業務内容について詳細をお聞きします";
+var SECTION_HEADER_ADDRESS = "ご住所についてお尋ねします";
+var SECTION_HEADER_PHOTO = "証明写真の提出について";
 
 /**
  * テキストを「回答：」または「回答:」で区切り、1質問＝1ブロックの配列にする。
@@ -117,6 +126,43 @@ function isPhotoBlock(block) {
 
 function isQualificationBlock(block) {
   return /資格/.test(block);
+}
+
+/**
+ * ブロックがどのカテゴリーに属するか判定する（カテゴリー枠の挿入用）。
+ * 「仕事で意識していたこと」「自己PR」はカテゴリ枠を出さないため other とする。
+ * 戻り値: "photo" | "high_school" | "qualification" | "business" | "address" | "other"
+ */
+function getCategory(block) {
+  if (isPhotoBlock(block)) return "photo";
+  if (isQualificationBlock(block)) return "qualification";
+  if (isJobConsciousnessBlock(block) || isSelfPRBlock(block)) return "other";
+  if (/高校|高卒|大学|学歴|中学|卒業/.test(block)) return "high_school";
+  if (/住所|ご住所|住まい|建物名|戸建て/.test(block)) return "address";
+  if (isAchievementBlock(block) || /業務|実績|目標|売上|達成率|顧客|商材|職務|担当|記入例/.test(block)) return "business";
+  return "other";
+}
+
+/**
+ * カテゴリーに対応する「説明のみの枠」の文言を返す。
+ */
+function getSectionHeaderForCategory(cat) {
+  switch (cat) {
+    case "photo": return SECTION_HEADER_PHOTO;
+    case "high_school": return SECTION_HEADER_HIGH_SCHOOL;
+    case "qualification": return SECTION_HEADER_QUALIFICATION;
+    case "business": return SECTION_HEADER_BUSINESS;
+    case "address": return SECTION_HEADER_ADDRESS;
+    default: return null;
+  }
+}
+
+/**
+ * ブロックが業務内容に該当するか（注釈を付けるか）。
+ * 意識していたこと・自己PRも注釈は付与する（カテゴリ枠は出さない）。
+ */
+function isBusinessCategoryBlock(block) {
+  return getCategory(block) === "business" || isJobConsciousnessBlock(block) || isSelfPRBlock(block);
 }
 
 /**
@@ -156,45 +202,59 @@ function parseQualificationLines(block) {
 /**
  * POST で受け取った JSON をパースしてフォームを作成し、URL を返す。
  * 例外時も必ず JSON で返し、Next.js 側で 502 の原因を特定しやすくする。
+ * 最外殻の try-catch で予期しない例外（PropertiesService 等）も捕捉し、HTML ではなく JSON を返す。
  */
 function doPost(e) {
   var result = { error: null, formId: null, responseUrl: null, editUrl: null, shareWarning: null };
-  if (!e || !e.postData || !e.postData.contents) {
-    result.error = "リクエストボディがありません。POSTでJSONを送信してください。";
-    return createJsonResponse(result, 400);
-  }
   try {
-    var body = JSON.parse(e.postData.contents);
-  } catch (err) {
-    result.error = "リクエストのJSON形式が不正です。";
-    return createJsonResponse(result, 400);
-  }
+    if (!e || !e.postData || !e.postData.contents) {
+      result.error = "リクエストボディがありません。POSTでJSONを送信してください。";
+      return createJsonResponse(result, 400);
+    }
+    var body;
+    try {
+      body = JSON.parse(e.postData.contents);
+    } catch (parseErr) {
+      result.error = "リクエストのJSON形式が不正です。";
+      return createJsonResponse(result, 400);
+    }
 
-  var token = body.token;
-  var expectedToken = PropertiesService.getScriptProperties().getProperty("INVOKE_TOKEN");
-  if (expectedToken && expectedToken.length > 0 && token !== expectedToken) {
-    result.error = "認証トークンが無効です。";
-    return createJsonResponse(result, 401);
-  }
+    var expectedToken = "";
+    try {
+      var props = PropertiesService.getScriptProperties();
+      if (props) expectedToken = (props.getProperty("INVOKE_TOKEN") || "").toString();
+    } catch (propErr) {
+      // スクリプトプロパティ取得に失敗しても続行（トークン未設定扱い）
+    }
+    var token = body.token;
+    if (expectedToken.length > 0 && token !== expectedToken) {
+      result.error = "認証トークンが無効です。";
+      return createJsonResponse(result, 401);
+    }
 
-  var candidateId = body.candidateId ? String(body.candidateId).trim() : "";
-  var candidateName = body.candidateName ? String(body.candidateName).trim() : "";
-  var questionText = body.questionText ? String(body.questionText) : "";
+    var candidateId = body.candidateId ? String(body.candidateId).trim() : "";
+    var candidateName = body.candidateName ? String(body.candidateName).trim() : "";
+    var questionText = body.questionText ? String(body.questionText) : "";
 
-  if (!candidateId || !/^5\d{6}$/.test(candidateId)) {
-    result.error = "candidateId は5から始まる7桁で指定してください。";
-    return createJsonResponse(result, 400);
-  }
-  if (!questionText) {
-    result.error = "questionText は必須です。";
-    return createJsonResponse(result, 400);
-  }
+    if (!candidateId || !/^5\d{6}$/.test(candidateId)) {
+      result.error = "candidateId は5から始まる7桁で指定してください。";
+      return createJsonResponse(result, 400);
+    }
+    if (!questionText) {
+      result.error = "questionText は必須です。";
+      return createJsonResponse(result, 400);
+    }
 
-  try {
-    return doCreateForm(candidateId, candidateName, questionText, result);
-  } catch (err) {
-    var errMsg = err && err.message ? err.message : String(err);
-    result.error = "フォーム作成中にエラーが発生しました: " + errMsg;
+    try {
+      return doCreateForm(candidateId, candidateName, questionText, result);
+    } catch (formErr) {
+      var errMsg = formErr && formErr.message ? formErr.message : String(formErr);
+      result.error = "フォーム作成中にエラーが発生しました: " + errMsg;
+      return createJsonResponse(result, 500);
+    }
+  } catch (outerErr) {
+    var outerMsg = outerErr && outerErr.message ? outerErr.message : String(outerErr);
+    result.error = "予期しないエラー: " + outerMsg;
     return createJsonResponse(result, 500);
   }
 }
@@ -210,8 +270,33 @@ function doCreateForm(candidateId, candidateName, questionText, result) {
   form.setDescription("候補者向けヒアリングフォーム（Candidate Intake から作成）");
   form.setRequireLogin(false);
 
-  for (var i = 0; i < blocks.length; i++) {
+  // ① ヘッダー：独立した説明セクション（回答欄なし）。直後にページ区切りで最初の質問と分離
+  if (blocks.length > 0) {
+    form.addSectionHeaderItem().setTitle(blocks[0]);
+    form.addPageBreakItem();
+  }
+
+  var lastCategory = null;
+  var businessSectionAlreadyAdded = false;
+  for (var i = 1; i < blocks.length; i++) {
     var block = blocks[i];
+    var cat = getCategory(block);
+
+    // ② カテゴリー枠：質問の前に「説明のみの枠」を1つ追加（業務内容は①の直前に1回だけ）
+    if (cat !== lastCategory) {
+      lastCategory = cat;
+      var sectionTitle = getSectionHeaderForCategory(cat);
+      if (sectionTitle) {
+        if (cat === "business") {
+          if (!businessSectionAlreadyAdded) {
+            form.addSectionHeaderItem().setTitle(sectionTitle);
+            businessSectionAlreadyAdded = true;
+          }
+        } else {
+          form.addSectionHeaderItem().setTitle(sectionTitle);
+        }
+      }
+    }
 
     if (isPhotoBlock(block)) {
       var photoItem = form.addMultipleChoiceItem();
@@ -223,13 +308,16 @@ function doCreateForm(candidateId, candidateName, questionText, result) {
 
     if (isJobConsciousnessBlock(block) || isSelfPRBlock(block)) {
       var choices = parseNumberedChoices(block);
+      var help = isBusinessCategoryBlock(block) ? BUSINESS_ANNOTATION : null;
       if (choices.length > 0) {
         var checkItem = form.addCheckboxItem();
         checkItem.setTitle(block);
         checkItem.setChoiceValues(choices);
         checkItem.setRequired(false);
+        if (help) checkItem.setHelpText(help);
       } else {
-        form.addParagraphTextItem().setTitle(block).setRequired(false);
+        var p = form.addParagraphTextItem().setTitle(block).setRequired(false);
+        if (help) p.setHelpText(help);
       }
       continue;
     }
@@ -249,21 +337,23 @@ function doCreateForm(candidateId, candidateName, questionText, result) {
     }
 
     if (isAchievementBlock(block)) {
-      form.addParagraphTextItem()
-        .setTitle(block)
-        .setHelpText(ACHIEVEMENT_ANNOTATION)
-        .setRequired(false);
+      // ③ 業務内容の質問には必ず BUSINESS_ANNOTATION を付与
+      var achItem = form.addParagraphTextItem().setTitle(block).setRequired(false);
+      achItem.setHelpText(BUSINESS_ANNOTATION);
       continue;
     }
 
-    form.addParagraphTextItem().setTitle(block).setRequired(false);
+    // 一般の段落質問：業務内容なら注釈を付ける
+    var paraItem = form.addParagraphTextItem().setTitle(block).setRequired(false);
+    if (isBusinessCategoryBlock(block)) {
+      paraItem.setHelpText(BUSINESS_ANNOTATION);
+    }
   }
 
+  // ④ 個人情報同意：説明ブロックは説明のみ（回答欄なし）、同意チェックは外に配置
   form.addPageBreakItem();
   form.addSectionHeaderItem().setTitle(PRIVACY_POLICY_TITLE);
-  form.addParagraphTextItem()
-    .setTitle(CONSENT_INSTRUCTION)
-    .setRequired(false);
+  form.addSectionHeaderItem().setTitle(CONSENT_INSTRUCTION);
   form.addParagraphTextItem().setTitle(PRIVACY_POLICY_BODY).setRequired(false);
   var consentItem = form.addCheckboxItem();
   consentItem.setTitle(CONSENT_CHECKBOX_LABEL);
@@ -291,4 +381,23 @@ function createJsonResponse(obj, statusCode) {
   var status = statusCode || 200;
   return ContentService.createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * エディタで「実行」→ この関数を選んで実行すると、Drive 等の認証が求められます。
+ * 「承認が必要です」→「許可」で認証を完了させてから、ウェブアプリ URL を開き直してください。
+ */
+function authorizeApp() {
+  DriveApp.getRootFolder().getName();
+}
+
+/**
+ * ブラウザで URL を開いたとき（GET）に呼ばれる。認証フローを出しやすくし、「ファイルを開くことができません」を避ける。
+ */
+function doGet() {
+  var html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>ウェブアプリ</title></head><body>" +
+    "<p>このウェブアプリは稼働中です。</p>" +
+    "<p>フォーム作成は Candidate Intake アプリから POST で呼び出してください。</p>" +
+    "</body></html>";
+  return ContentService.createTextOutput(html).setMimeType(ContentService.MimeType.HTML);
 }

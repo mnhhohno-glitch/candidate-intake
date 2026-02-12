@@ -94,15 +94,24 @@ export async function POST(request: NextRequest) {
     try {
       data = JSON.parse(raw) as typeof data;
     } catch {
+      const bodyPreview = raw.slice(0, 800);
+      const isLikelyConsent =
+        /authorization|許可|consent|Access|アクセスを許可|このアプリへのアクセス/i.test(bodyPreview);
+      const hintMessage = isLikelyConsent
+        ? "初回に、GASの「デプロイを管理」にあるウェブアプリのURLをブラウザで開き、「アクセスを許可しますか？」と出たら「許可」をクリックしてください。未実施だと502になります。"
+        : "GASの「実行数」で失敗時のエラー内容を確認し、Code.gsを最新版にしたうえで「新バージョン」でデプロイし直してください。";
       console.error(
-        "[create-google-form] GAS response not JSON. status=%s body=%s",
+        "[create-google-form] GAS response not JSON. status=%s bodyPreview=%s",
         gasRes.status,
-        raw.slice(0, 500)
+        bodyPreview
+      );
+      console.error(
+        "[create-google-form] 考えられる原因: (1)ウェブアプリURLをブラウザで一度開き許可していない (2)デプロイが古い/別のURLを参照 (3)GAS実行ログで例外確認"
       );
       return NextResponse.json(
         {
           error:
-            "Googleフォームの作成に失敗しました。GASがHTMLやエラーページを返しています。GASのデプロイURL・実行ログを確認してください。",
+            "Googleフォームの作成に失敗しました。GASがHTMLを返しています。" + hintMessage,
         },
         { status: 502 }
       );

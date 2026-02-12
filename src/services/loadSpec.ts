@@ -190,6 +190,17 @@ export function buildCommonAnalysisPrompt(
       ? `\n【出力時のルール】\n${spec.input_rules.map((r) => `・${r}`).join("\n")}\n`
       : "";
 
+  const interviewQualityGate =
+    interviewLog && interviewLog.trim().length > 0
+      ? `
+
+【面談メモ品質ゲート（書き起こしテキスト入力時）】
+・面談メモは書き起こしのため、全文を走査し退職理由・転職理由の言及があれば必ず filemaker_mapping または work_history に出力すること。空欄禁止。
+・時制（未来型/過去型）を判定し extracted_facts.tense に「未来」「過去」「混在」「不明」のいずれかで必ず出力すること。
+・読むべき内容・確認すべき論点は extracted_facts.reading_targets に箇条書きで出力すること。
+・重要項目には根拠となる抜粋を evidence_map に記載すること。`
+      : "";
+
   const userPrompt = `【タスク】添付3つのファイル（面談の通話文字起こしメモ・Web履歴書PDF・フラグリスト）をすべて読み取り、必要な情報をフラグリストの形式に合わせて書き出してください。filemaker_mapping のキーは「基本情報シートの列名」と完全一致させること。表記が1文字でも違うとExcelに反映されません。フラグ列の値はフラグリストに記載されている選択肢の文言をそのまま使ってください。
 
 【基本情報シートの列名（filemaker_mapping のキーはこのいずれかと完全一致させること）】
@@ -197,6 +208,7 @@ ${basicColumns}
 ${inputRulesBlock}
 以下は3つの資料の全文です。面談メモ・PDF・フラグリストをそれぞれ個別に解析し、すべて最初から最後まで読んだうえで、記載がある項目を漏れなく filemaker_mapping に追加し、メモ列には要約を書いてください。確認用ステップで漏れがないか見直したうえで出力してください。
 ${filenameBlock}
+${interviewQualityGate}
 
 【面談の通話文字起こしメモ（会話内容の文字起こし）】
 ${interviewLog || "(なし)"}
