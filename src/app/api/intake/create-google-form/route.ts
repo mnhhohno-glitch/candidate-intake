@@ -57,6 +57,10 @@ export async function POST(request: NextRequest) {
       token: GAS_INVOKE_TOKEN,
     };
 
+    const blockSepCount = questionText.match(/\n回答[：:]\n?/g)?.length ?? 0;
+    const questionBlocksSent = blockSepCount + 1;
+    console.log("[create-google-form] sending to GAS candidateId=", candidateId, "questionTextChars=", questionText.length, "questionBlocks=", questionBlocksSent);
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 90_000); // 90秒でタイムアウト
     let gasRes: Response;

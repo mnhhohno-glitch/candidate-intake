@@ -93,6 +93,11 @@ var SECTION_HEADER_BUSINESS = "業務内容について詳細をお聞きしま�
 var SECTION_HEADER_ADDRESS = "ご住所についてお尋ねします";
 var SECTION_HEADER_PHOTO = "証明写真の提出について";
 
+/** APIが付与する挨拶文の末尾。この直後からが第1質問なので、blocks[0]から挨拶と第1質問を分離する */
+var INTRO_END_MARKER = "ご記入頂けますと幸いです。";
+/** APIが付与するフッターの先頭。最終ブロックに含まれていたら除去する */
+var FOOTER_START_MARKER = "以上となります。";
+
 /**
  * テキストを「回答：」または「回答:」で区切り、1質問＝1ブロックの配列にする。
  * 各ブロック末尾の「回答：」行は設問からは削除する（フォームでは入力欄が回答のため）。
@@ -260,7 +265,33 @@ function doPost(e) {
 }
 
 /**
+ * blocks[0] が API 付与の挨拶＋第1質問の連結の場合、挨拶と第1質問に分離する。
+ * 戻り値: { introTitle: string|null, firstQuestion: string }
+ * - introTitle が null のときは挨拶が含まれていない（blocks[0] がそのまま第1質問）。
+ */
+function splitIntroAndFirstQuestion(block0) {
+  if (!block0 || typeof block0 !== "string") return { introTitle: null, firstQuestion: block0 || "" };
+  var idx = block0.indexOf(INTRO_END_MARKER);
+  if (idx === -1) return { introTitle: null, firstQuestion: block0.trim() };
+  var introTitle = block0.substring(0, idx + INTRO_END_MARKER.length).trim();
+  var firstQuestion = block0.substring(idx + INTRO_END_MARKER.length).replace(/^\s+/, "").trim();
+  return { introTitle: introTitle, firstQuestion: firstQuestion };
+}
+
+/**
+ * 最終ブロック末尾に API 付与のフッターが含まれていれば除去する。
+ */
+function stripFooterFromLastBlock(block) {
+  if (!block || typeof block !== "string") return block || "";
+  var idx = block.indexOf(FOOTER_START_MARKER);
+  if (idx === -1) return block;
+  return block.substring(0, idx).replace(/\s+$/, "").trim();
+}
+
+/**
  * フォーム実体を作成し、result に URL を詰めて返す。
+ * 重要: API は「挨拶\n\n質問1\n回答：\n質問2\n回答：\n...」を返すため、
+ * blocks[0] = 挨拶＋第1質問が連結している。挨拶と第1質問を分離し、第1質問もフォーム項目にする。
  */
 function doCreateForm(candidateId, candidateName, questionText, result) {
   var blocks = parseQuestionBlocks(questionText);
@@ -270,16 +301,29 @@ function doCreateForm(candidateId, candidateName, questionText, result) {
   form.setDescription("候補者向けヒアリングフォーム（Candidate Intake から作成）");
   form.setRequireLogin(false);
 
-  // ① ヘッダー：独立した説明セクション（回答欄なし）。直後にページ区切りで最初の質問と分離
+  // ① 挨拶と第1質問の分離。挨拶のみを説明セクションに、第1質問は後続と同様にフォーム項目にする
+  var introTitle = null;
+  var questionBlocks = [];
   if (blocks.length > 0) {
-    form.addSectionHeaderItem().setTitle(blocks[0]);
+    var split = splitIntroAndFirstQuestion(blocks[0]);
+    introTitle = split.introTitle;
+    if (split.firstQuestion) questionBlocks.push(split.firstQuestion);
+  }
+  for (var j = 1; j < blocks.length; j++) {
+    var b = blocks[j];
+    if (j === blocks.length - 1) b = stripFooterFromLastBlock(b);
+    if (b) questionBlocks.push(b);
+  }
+
+  if (introTitle) {
+    form.addSectionHeaderItem().setTitle(introTitle);
     form.addPageBreakItem();
   }
 
   var lastCategory = null;
   var businessSectionAlreadyAdded = false;
-  for (var i = 1; i < blocks.length; i++) {
-    var block = blocks[i];
+  for (var i = 0; i < questionBlocks.length; i++) {
+    var block = questionBlocks[i];
     var cat = getCategory(block);
 
     // ② カテゴリー枠：質問の前に「説明のみの枠」を1つ追加（業務内容は①の直前に1回だけ）
