@@ -95,8 +95,8 @@ export async function POST(request: NextRequest) {
     const buffer = await buildXlsxBuffer(parsed);
     const baseName = getCandidateName(commonAnalysisJson);
     const displayName = baseName || "候補者";
-    const filenameJa = `基本情報シート_${displayName}.xlsx`;
-    const asciiFallback = "basic_info.xlsx";
+    const filenameJa = `FM_インポートデータ_${displayName}.xlsx`;
+    const asciiFallback = "FM_import.xlsx";
     const contentDisposition =
       `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(filenameJa)}`;
 

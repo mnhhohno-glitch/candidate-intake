@@ -31,6 +31,25 @@ function looksLikeCandidateNoOnly(val: unknown): boolean {
   return /^5\d{6}$/.test(s);
 }
 
+/** 職歴シートのシート名（納品仕様） */
+const WORK_HISTORY_SHEET_NAME = "職歴シート";
+
+/**
+ * 初回面談まとめから求職者NO・インポート用照合キー等のキー情報を除去する。
+ * 初回面談まとめは面談要約のみを入れる欄のため、識別子が混入していれば除去する。
+ */
+function sanitizeSummaryForImportKey(val: unknown, _candidateNo: string | null): string | null {
+  if (val == null || typeof val !== "string") return val as string | null;
+  let s = val.trim();
+  if (!s) return s;
+  const importKeyPattern = /\b5\d{7}\b/g;
+  s = s.replace(importKeyPattern, "");
+  const candidateNoPattern = /\b5\d{6}\b/g;
+  s = s.replace(candidateNoPattern, "");
+  s = s.replace(/\s*[、,]\s*[、,]\s*/g, "、").replace(/^[、,\s]+|[、,\s]+$/g, "").trim();
+  return s || null;
+}
+
 /**
  * Gemini出力の excel_files に、common_analysis_json の filemaker_mapping を反映する。
  * 基本情報シート: 行が0件なら1行作成。各列は filemaker_mapping で補完。
@@ -56,6 +75,7 @@ export function applyFilemakerBackfill(
     const colIndexImportKey = columns.findIndex(
       (c) => c === "インポート用照合キー" || c === "照合キー"
     );
+    const colIndexSummary = columns.findIndex((c) => c === "初回面談まとめ");
     for (const row of rows) {
       if (!Array.isArray(row)) continue;
       for (let i = 0; i < columns.length; i++) {
@@ -69,8 +89,14 @@ export function applyFilemakerBackfill(
           if (colName.includes("メモ") && looksLikeCandidateNoOnly(val)) {
             val = null;
           }
+          if (colName === "初回面談まとめ" && typeof val === "string") {
+            val = sanitizeSummaryForImportKey(val, candidateNo as string | null) ?? val;
+          }
           row[i] = val;
         }
+      }
+      if (colIndexSummary >= 0 && Array.isArray(row) && row[colIndexSummary] != null && typeof row[colIndexSummary] === "string") {
+        row[colIndexSummary] = sanitizeSummaryForImportKey(row[colIndexSummary], candidateNo as string | null) ?? row[colIndexSummary];
       }
       if (colIndexImportKey >= 0 && importKeyValue !== null) {
         row[colIndexImportKey] = importKeyValue;
@@ -87,16 +113,16 @@ export function applyFilemakerBackfill(
 }
 
 /**
- * 職歴情報シートが無い場合は常に追加する（ヘッダーだけでもシートを用意する）。
+ * 職歴シートが無い場合は常に追加する（ヘッダーだけでもシートを用意する）。
  */
 export function ensureWorkHistorySheetExists(
   data: ExcelFilesOutput,
   _common?: CommonAnalysisJson
 ): void {
   const sheets = data.excel_files?.sheets ?? [];
-  if (sheets.some((s) => s.sheet_name === "職歴情報シート")) return;
+  if (sheets.some((s) => s.sheet_name === WORK_HISTORY_SHEET_NAME)) return;
   sheets.push({
-    sheet_name: "職歴情報シート",
+    sheet_name: WORK_HISTORY_SHEET_NAME,
     columns: [...WORK_HISTORY_COLUMNS],
     rows: [],
   });
@@ -118,7 +144,7 @@ export function applyWorkHistoryBackfill(
   const sheets = data.excel_files?.sheets ?? [];
 
   for (const sheet of sheets) {
-    if (sheet.sheet_name !== "職歴情報シート") continue;
+    if (sheet.sheet_name !== WORK_HISTORY_SHEET_NAME) continue;
 
     sheet.columns = [...WORK_HISTORY_COLUMNS];
     const columns = sheet.columns;
