@@ -88,7 +88,7 @@ var QUALIFICATION_EXTRA_DESC =
 
 /** カテゴリー枠（説明のみ）の文言 */
 var SECTION_HEADER_HIGH_SCHOOL = "高校についてお尋ねします";
-var SECTION_HEADER_QUALIFICATION = "資格についてお尋ねします";
+var SECTION_HEADER_QUALIFICATION = "お持ちの資格がございましたらご記入ください";
 var SECTION_HEADER_BUSINESS = "業務内容について詳細をお聞きします";
 var SECTION_HEADER_ADDRESS = "ご住所についてお尋ねします";
 var SECTION_HEADER_PHOTO = "証明写真の提出について";
@@ -133,6 +133,12 @@ function isPhotoBlock(block) {
 
 function isQualificationBlock(block) {
   return /資格/.test(block);
+}
+
+/** 求職者に開示しない内部指示文（06のdescription/instructionが漏れたブロック）かどうか */
+function isInternalInstructionBlock(block) {
+  if (!block || typeof block !== "string") return false;
+  return /PDFをAIで読み取り職務経歴書/.test(block) || /achievement_category\s*の選択値に応じて/.test(block);
 }
 
 /**
@@ -190,7 +196,7 @@ function parseNumberedChoices(block) {
 }
 
 /**
- * 資格ブロックを1行1資格として分割。空行・見出しのみは除外。
+ * 資格ブロックを1行1資格として分割。空行・見出し・「回答」行は除外。
  * 戻り値: [ "資格1", "資格2", ... ]
  */
 function parseQualificationLines(block) {
@@ -201,6 +207,8 @@ function parseQualificationLines(block) {
     if (!line) continue;
     // 「資格質問欄」「資格」だけの行は見出しとしてスキップ
     if (/^資格質問?欄?$/.test(line) || /^資格$/.test(line)) continue;
+    // 「回答：」「回答:」のみの行は区切り用のためスキップ（フォームに表示しない）
+    if (/^回答[：:]\s*$/.test(line)) continue;
     items.push(line);
   }
   return items;
@@ -334,6 +342,7 @@ function doCreateForm(candidateId, candidateName, questionText, result) {
   var businessSectionAlreadyAdded = false;
   for (var i = 0; i < questionBlocks.length; i++) {
     var block = questionBlocks[i];
+    if (isInternalInstructionBlock(block)) continue;
     var cat = getCategory(block);
 
     // ② カテゴリー枠：質問の前に「説明のみの枠」を1つ追加（業務内容は①の直前に1回だけ）

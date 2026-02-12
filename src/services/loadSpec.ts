@@ -65,7 +65,7 @@ export const ACHIEVEMENT_CATEGORY_OPTIONS = [
 ] as const;
 export type AchievementCategory = (typeof ACHIEVEMENT_CATEGORY_OPTIONS)[number];
 
-/** achievement_category に応じた追加実績ヒアリングブロックを返す。未指定・不明時は空文字 */
+/** achievement_category に応じた追加実績ヒアリングの質問文のみを返す。未指定・不明時は空文字。説明・指示（求職者非開示）は含めない。 */
 export function getAchievementCategoryBlock(category: string): string {
   if (!category || typeof category !== "string") return "";
   const spec = loadYamlSafe<Spec06>("06_achievement_category_followup.yaml");
@@ -73,11 +73,8 @@ export function getAchievementCategoryBlock(category: string): string {
   const key = category.trim();
   const entry = categories[key];
   if (!entry) return "";
-  const desc = (spec.description ?? "").trim();
-  const inst = (entry.instruction ?? "").trim();
   const q = (entry.questions ?? "").trim();
-  const parts = [desc, inst, q].filter(Boolean);
-  return parts.join("\n\n");
+  return q;
 }
 
 /** Step A 構造化抽出の結果型（04 base_prompt は一切変更しない） */
