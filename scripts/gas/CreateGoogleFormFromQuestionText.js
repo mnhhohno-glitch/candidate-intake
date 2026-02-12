@@ -426,6 +426,19 @@ function doCreateForm(candidateId, candidateName, questionText, result) {
   var spreadsheet = SpreadsheetApp.create("回答_" + formTitle);
   form.setDestination(FormApp.DestinationType.SPREADSHEET, spreadsheet.getId());
 
+  // 共有ドライブのフォルダIDが設定されていれば、フォームとスプレッドシートをそのフォルダに移動する（編集メンバーが社員全員なら社員も編集可能）
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var sharedFolderId = props ? (props.getProperty("SHARED_DRIVE_FOLDER_ID") || "").toString().trim() : "";
+    if (sharedFolderId) {
+      var targetFolder = DriveApp.getFolderById(sharedFolderId);
+      DriveApp.getFileById(form.getId()).moveTo(targetFolder);
+      DriveApp.getFileById(spreadsheet.getId()).moveTo(targetFolder);
+    }
+  } catch (moveErr) {
+    // フォルダIDが無効・権限不足の場合は移動をスキップ（マイドライブに作成されたまま）
+  }
+
   try {
     var formFile = DriveApp.getFileById(form.getId());
     formFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
