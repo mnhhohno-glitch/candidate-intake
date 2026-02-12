@@ -216,6 +216,7 @@ export async function POST(request: NextRequest) {
         if (isValidCommonAnalysis(normalized)) {
           normalized.extracted_facts.candidate_no = registeredCandidateId!;
           let geminiTimeMs = Date.now() - analyzeStart;
+          const workHistoryEmpty = !Array.isArray(normalized.extracted_facts.work_history) || normalized.extracted_facts.work_history.length === 0;
           if (interviewLog.trim().length > 100 && isResignationEmpty(normalized)) {
             console.log("[intake/analyze] Resignation empty despite interview log — running 2nd pass (resignation re-extract)");
             const secondPassSuffix = `
@@ -234,10 +235,35 @@ export async function POST(request: NextRequest) {
               if (isValidCommonAnalysis(second)) {
                 mergeResignationFromSecond(normalized, second);
                 geminiTimeMs = Date.now() - analyzeStart;
-                console.log(`[intake/analyze] 2nd pass merged in ${Date.now() - analyzeStart - geminiTimeMs}ms`);
+                console.log(`[intake/analyze] 2nd pass (resignation) merged`);
               }
             } catch (e2) {
               console.warn("[intake/analyze] 2nd pass failed, using 1st result:", e2 instanceof Error ? e2.message : String(e2));
+            }
+          }
+          if (interviewLog.trim().length > 500 && workHistoryEmpty) {
+            console.log("[intake/analyze] work_history empty despite interview log — running 2nd pass (work_history extract)");
+            const workHistoryPassSuffix = `
+
+【2パス目・職歴の再抽出】
+上記の面談メモ（とPDF）を再読し、職歴（在籍した会社・在籍期間・職種・退職理由など）を在籍順にすべて抽出してください。extracted_facts.work_history に、企業名・事業内容・在籍期間_年・在籍期間_ヶ月・職種フラグ・職種メモ・退職理由_大・退職理由_中・退職理由_小・転職理由メモ を日本語キーで必ず出力してください。1社でも言及があれば配列に含め、空配列にしないでください。出力は共通解析JSON形式（extracted_facts, filemaker_mapping, missing_items）で返し、work_history を必ず埋めてください。`;
+            try {
+              const rawWh = await generateWithGemini({
+                systemInstruction,
+                userPrompt: userPrompt + workHistoryPassSuffix,
+                responseMimeType: "application/json",
+                maxOutputTokens: 16384,
+              });
+              const parsedWh = parseJsonResponse<unknown>(rawWh);
+              const normWh = normalizeCommonAnalysis(parsedWh);
+              const wh = normWh.extracted_facts?.work_history;
+              if (Array.isArray(wh) && wh.length > 0) {
+                normalized.extracted_facts.work_history = wh;
+                geminiTimeMs = Date.now() - analyzeStart;
+                console.log(`[intake/analyze] 2nd pass (work_history) merged, rows=${wh.length}`);
+              }
+            } catch (eWh) {
+              console.warn("[intake/analyze] work_history 2nd pass failed:", eWh instanceof Error ? eWh.message : String(eWh));
             }
           }
           console.log(`[intake/analyze] Gemini done in ${geminiTimeMs}ms`);

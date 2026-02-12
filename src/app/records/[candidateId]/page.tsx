@@ -162,10 +162,13 @@ export default function RecordDetailPage() {
       }
       const blob = await excelRes.blob();
       const url = URL.createObjectURL(blob);
+      const recommended = excelRes.headers.get("X-Recommended-Filename")?.trim();
       const disp = excelRes.headers.get("Content-Disposition");
       const match = disp?.match(/filename\*?=(?:UTF-8'')?([^;]+)/);
-      const fileName = match ? decodeURIComponent(match[1].replace(/^["']|["']$/g, "").trim()) : "FM_インポートデータ_候補者.xlsx";
-      setExcelDownloadName(fileName);
+      const fromDisp = match ? decodeURIComponent(match[1].replace(/^["']|["']$/g, "").trim()) : "";
+      const fileName = recommended || fromDisp || "FM_インポートデータ_候補者.xlsx";
+      const fileNameWithExt = fileName.endsWith(".xlsx") ? fileName : `${fileName}.xlsx`;
+      setExcelDownloadName(fileNameWithExt);
       setExcelBlobUrl(url);
       setStep("done");
       const attachmentSummary = {
@@ -175,7 +178,7 @@ export default function RecordDetailPage() {
       };
       const cacheFormData = new FormData();
       cacheFormData.append("attachmentSummary", JSON.stringify(attachmentSummary));
-      cacheFormData.append("excel", blob, fileName);
+      cacheFormData.append("excel", blob, fileNameWithExt);
       try {
         await fetch(`/api/records/${encodeURIComponent(record.candidateId)}/cache`, {
           method: "POST",

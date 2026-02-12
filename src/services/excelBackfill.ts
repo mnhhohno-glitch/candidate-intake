@@ -31,8 +31,13 @@ function looksLikeCandidateNoOnly(val: unknown): boolean {
   return /^5\d{6}$/.test(s);
 }
 
-/** 職歴シートのシート名（納品仕様） */
-const WORK_HISTORY_SHEET_NAME = "職歴シート";
+/** 職歴シートのシート名。Gemini・03プロンプトは「職歴情報シート」を返すためこれに統一し、両方の名前でバックフィル対象にする */
+const WORK_HISTORY_SHEET_NAME = "職歴情報シート";
+const WORK_HISTORY_SHEET_ALIAS = "職歴シート";
+
+function isWorkHistorySheet(name: string): boolean {
+  return name === WORK_HISTORY_SHEET_NAME || name === WORK_HISTORY_SHEET_ALIAS;
+}
 
 /**
  * 初回面談まとめから求職者NO・インポート用照合キー等のキー情報を除去する。
@@ -120,7 +125,7 @@ export function ensureWorkHistorySheetExists(
   _common?: CommonAnalysisJson
 ): void {
   const sheets = data.excel_files?.sheets ?? [];
-  if (sheets.some((s) => s.sheet_name === WORK_HISTORY_SHEET_NAME)) return;
+  if (sheets.some((s) => isWorkHistorySheet(s.sheet_name))) return;
   sheets.push({
     sheet_name: WORK_HISTORY_SHEET_NAME,
     columns: [...WORK_HISTORY_COLUMNS],
@@ -144,7 +149,7 @@ export function applyWorkHistoryBackfill(
   const sheets = data.excel_files?.sheets ?? [];
 
   for (const sheet of sheets) {
-    if (sheet.sheet_name !== WORK_HISTORY_SHEET_NAME) continue;
+    if (!isWorkHistorySheet(sheet.sheet_name)) continue;
 
     sheet.columns = [...WORK_HISTORY_COLUMNS];
     const columns = sheet.columns;

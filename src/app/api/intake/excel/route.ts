@@ -106,6 +106,7 @@ export async function POST(request: NextRequest) {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "Content-Disposition": contentDisposition,
         "Content-Length": String(buffer.length),
+        "X-Recommended-Filename": filenameJa,
       },
     });
   } catch (error) {
