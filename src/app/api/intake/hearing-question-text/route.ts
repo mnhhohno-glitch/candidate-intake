@@ -123,6 +123,7 @@ function checkOutputRules(
   }
   // 番地・部屋番号があるのに「戸建てでよろしいですか」は不適切（ケースBは番地のみ・建物・部屋なしのときのみ）
   const hasBanchi = structured.address_has_banchi === true;
+  const hasBuilding = structured.address_has_building === true;
   const hasRoom = structured.address_has_room === true;
   if (hasBanchi && hasRoom) {
     const hasInappropriateTatei =
@@ -130,6 +131,20 @@ function checkOutputRules(
       normalized.includes("戸建てという認識でよろしいでしょうか");
     if (hasInappropriateTatei) {
       return { passed: false, reason: "address has room number; must not ask if 戸建て (use 建物名の記載をお願い instead)" };
+    }
+  }
+  // 番地・建物名・部屋番号がすべて揃っているのに「丁目・番地未記入」「建物名と部屋番号の記載お願い」は不適切
+  if (hasBanchi && hasBuilding && hasRoom) {
+    const caseAPatterns = [
+      "丁目・番地未記入",
+      "建物名と部屋番号の記載もお願い",
+      "建物名と部屋番号の記載もお願いいたします",
+    ];
+    const hasInappropriateAddressAsk = caseAPatterns.some(
+      (p) => output.includes(p) || normalized.includes(p)
+    );
+    if (hasInappropriateAddressAsk) {
+      return { passed: false, reason: "address has 番地・建物名・部屋番号; must not output 丁目・番地未記入 or 建物名と部屋番号の記載お願い" };
     }
   }
   return { passed: true };
@@ -357,7 +372,7 @@ export async function POST(request: NextRequest) {
         systemInstruction,
         userPrompt,
         responseMimeType: "text/plain",
-        maxOutputTokens: 8192,
+        maxOutputTokens: 16384,
         temperature: 0.1,
       });
       const stepBLatencyMs = Date.now() - stepBStart;
