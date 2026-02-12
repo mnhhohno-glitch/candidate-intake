@@ -146,7 +146,7 @@ ${needHighSchoolBlock ? "\n【高校】最終学歴が高校卒以外（highest_
 
   const userPrompt = `${structuredBlock}【job_type】
 ${jobType}
-${achievementCategory ? `\n【achievement_category】\n${achievementCategory}\n` : ""}
+${achievementCategory ? `\n【achievement_category】\n${achievementCategory}\n【必須】出力順4「追加実績ヒアリング」を省略しないこと。上記プロンプトの「追加実績ヒアリングロジック」の該当カテゴリ（${achievementCategory}）の質問文を、高校・資格・住所のあと、意識・自己PR・証明写真の前にそのまま全て出力すること。\n` : ""}
 
 【候補者WEB履歴書PDF抽出テキスト】
 ${resumePdfText || "(なし)"}
@@ -156,7 +156,7 @@ ${interviewMemoText || "(なし)"}
 ${extraUserPromptSuffix ? `\n\n${extraUserPromptSuffix}` : ""}
 
 上記を解析し、プロンプトに従い候補者に送る質問本文のみを出力してください。見出し・内部メモ・解析過程・GoogleフォームやURLは一切出力しないでください。
-【重要】該当する全ての質問ブロックを省略せず最後まで出力すること。各ブロックは「回答：」で区切ること。固定の「仕事で意識」「自己PR」「証明写真」まで必ず含めること。途中で打ち切らないこと。`;
+【重要】該当する全ての質問ブロックを省略せず最後まで出力すること。各ブロックは「回答：」で区切ること。固定の「仕事で意識」「自己PR」「証明写真」まで必ず含めること。achievement_category が指定されている場合は「追加実績ヒアリング」のブロックも必ず含めること。途中で打ち切らないこと。`;
   return { systemInstruction, userPrompt };
 }
 

@@ -101,10 +101,12 @@ var FOOTER_START_MARKER = "以上となります。";
 /**
  * テキストを「回答：」または「回答:」で区切り、1質問＝1ブロックの配列にする。
  * 各ブロック末尾の「回答：」行は設問からは削除する（フォームでは入力欄が回答のため）。
+ * \n および \r\n の両方に対応する。
  */
 function parseQuestionBlocks(questionText) {
   if (!questionText || typeof questionText !== "string") return [];
-  var parts = questionText.split(/\n回答[：:]\n?/);
+  var normalized = questionText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  var parts = normalized.split(/\n回答[：:]\s*\n?/);
   var blocks = [];
   for (var i = 0; i < parts.length; i++) {
     var block = parts[i].replace(/\n?回答[：:]\s*$/, "").trim();
@@ -314,10 +316,18 @@ function doCreateForm(candidateId, candidateName, questionText, result) {
     if (j === blocks.length - 1) b = stripFooterFromLastBlock(b);
     if (b) questionBlocks.push(b);
   }
+  // フォールバック：分離後に質問が0件のとき（挨拶のみ送られた等）は全ブロックをそのまま質問として表示する
+  if (questionBlocks.length === 0 && blocks.length > 0) {
+    introTitle = null;
+    for (var k = 0; k < blocks.length; k++) {
+      var bk = k === blocks.length - 1 ? stripFooterFromLastBlock(blocks[k]) : blocks[k];
+      if (bk) questionBlocks.push(bk);
+    }
+  }
 
   if (introTitle) {
     form.addSectionHeaderItem().setTitle(introTitle);
-    form.addPageBreakItem();
+    // ページ区切りは入れない。挨拶の直後に第1質問を同じ画面に表示する（「次へ」の先にしか質問が出ない問題を解消）
   }
 
   var lastCategory = null;
