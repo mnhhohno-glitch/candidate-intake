@@ -147,6 +147,15 @@ function checkOutputRules(
       return { passed: false, reason: "address has 番地・建物名・部屋番号; must not output 丁目・番地未記入 or 建物名と部屋番号の記載お願い" };
     }
   }
+  // 出力は必ず複数ブロック（固定で意識・自己PR・証明写真の3つは必須）。1ブロックのみは途中打ち切りとみなす
+  const blockSeparators = output.match(/\n回答[：:]\n?/g) || [];
+  const blockCount = blockSeparators.length + 1;
+  if (blockCount < 3) {
+    return {
+      passed: false,
+      reason: `output has too few blocks (${blockCount}); must include 仕事で意識・自己PR・証明写真 at minimum; do not truncate`,
+    };
+  }
   return { passed: true };
 }
 
@@ -376,7 +385,10 @@ export async function POST(request: NextRequest) {
         temperature: 0.1,
       });
       const stepBLatencyMs = Date.now() - stepBStart;
-      console.log("[hearing-question-text] step_b done latency_ms=", stepBLatencyMs, "outputChars=", (raw ?? "").length);
+      const outLen = (raw ?? "").length;
+      const blockSepCount = (raw ?? "").match(/\n回答[：:]\n?/g)?.length ?? 0;
+      const outputBlocks = blockSepCount + 1;
+      console.log("[hearing-question-text] step_b done latency_ms=", stepBLatencyMs, "outputChars=", outLen, "outputBlocks=", outputBlocks);
       let out = (raw ?? "").trim();
       if (out.startsWith("```")) {
         out = out.replace(/^```[\w]*\n?/, "").replace(/\n?```$/, "").trim();
@@ -396,6 +408,9 @@ export async function POST(request: NextRequest) {
       }
       if (outputCheck.reason.includes("high school")) {
         parts.push("【再試行】最終学歴が高校卒以外のため、必ず「高校名と卒業年度、入学年度について教えてください」のブロックをそのまま出力すること。省略禁止。");
+      }
+      if (outputCheck.reason.includes("too few blocks") || outputCheck.reason.includes("do not truncate")) {
+        parts.push("【再試行】出力が途中で切れています。該当する全ブロックを省略せず最後まで出力すること。必ず「仕事において意識していたこと」「自己PR」「証明写真の提出」の3つの固定ブロックまで含めて出力してください。1ブロックで終了しないこと。");
       }
       const retrySuffix = parts.length > 0 ? parts.join(" ") : undefined;
       text = await runStepB(retrySuffix);
