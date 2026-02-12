@@ -196,7 +196,8 @@ export function applyWorkHistoryBackfill(
       const yearVal = it.在籍期間_年 ?? (period != null ? undefined : null);
       const monthVal = it.在籍期間_ヶ月 ?? (period != null ? undefined : null);
       if (yearVal !== undefined && yearVal !== null && colIndex["在籍期間_年"] !== undefined) {
-        row[colIndex["在籍期間_年"]] = typeof yearVal === "number" ? yearVal : Number(yearVal) || yearVal;
+        const y = typeof yearVal === "number" ? yearVal : Number(yearVal);
+        row[colIndex["在籍期間_年"]] = Number.isFinite(y) ? y : null;
       } else if (period != null) {
         const periodStr = String(period);
         const yearMatch = periodStr.match(/(\d+)\s*年/);
@@ -205,7 +206,8 @@ export function applyWorkHistoryBackfill(
         }
       }
       if (monthVal !== undefined && monthVal !== null && colIndex["在籍期間_ヶ月"] !== undefined) {
-        row[colIndex["在籍期間_ヶ月"]] = typeof monthVal === "number" ? monthVal : Number(monthVal) || monthVal;
+        const m = typeof monthVal === "number" ? monthVal : Number(monthVal);
+        row[colIndex["在籍期間_ヶ月"]] = Number.isFinite(m) ? m : null;
       } else if (period != null) {
         const periodStr = String(period);
         const monthMatch = periodStr.match(/(\d+)\s*[ヶか]月/);
