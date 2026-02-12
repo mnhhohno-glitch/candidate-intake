@@ -144,7 +144,7 @@ export default function RegisterPage() {
       const url = URL.createObjectURL(blob);
       const disp = excelRes.headers.get("Content-Disposition");
       const match = disp?.match(/filename\*?=(?:UTF-8'')?([^;]+)/);
-      const name = match ? decodeURIComponent(match[1].replace(/^["']|["']$/g, "")) : "基本情報シート_候補者.xlsx";
+      const name = match ? decodeURIComponent(match[1].replace(/^["']|["']$/g, "").trim()) : "基本情報シート_候補者.xlsx";
       setExcelDownloadName(name);
       setExcelBlobUrl(url);
       setStep("done");

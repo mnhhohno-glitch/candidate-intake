@@ -104,8 +104,8 @@ export function ensureWorkHistorySheetExists(
 
 /**
  * 職歴情報シートの行を work_history から生成・補完する。
+ * work_history にデータがある場合は、列定義と行を共通解析の内容で上書きし、確実に職歴情報シートを埋める（Geminiの出力に依存しない）。
  * シートが無い場合は ensureWorkHistorySheetExists で追加済みの前提。
- * Geminiが行を返していない場合は、work_history の件数分の行を追加してから埋める。
  */
 export function applyWorkHistoryBackfill(
   data: ExcelFilesOutput,
@@ -114,39 +114,37 @@ export function applyWorkHistoryBackfill(
   ensureWorkHistorySheetExists(data, common);
 
   const workHistory = common?.extracted_facts?.work_history;
-  if (!Array.isArray(workHistory) || workHistory.length === 0) return data;
-
   const candidateNo = common?.extracted_facts?.candidate_no ?? null;
   const sheets = data.excel_files?.sheets ?? [];
+
   for (const sheet of sheets) {
     if (sheet.sheet_name !== "職歴情報シート") continue;
-    if ((sheet.columns ?? []).length === 0) {
-      sheet.columns = [...WORK_HISTORY_COLUMNS];
-    }
-    const columns = sheet.columns ?? [];
-    let rows = sheet.rows ?? [];
-    const colLen = columns.length;
-    while (rows.length < workHistory.length) {
-      rows.push(Array(colLen).fill(null) as (string | number | boolean | null)[]);
-    }
-    sheet.rows = rows;
 
+    sheet.columns = [...WORK_HISTORY_COLUMNS];
+    const columns = sheet.columns;
     const colIndex: Record<string, number> = {};
     columns.forEach((c, i) => {
       colIndex[c] = i;
     });
-    for (let r = 0; r < rows.length && r < workHistory.length; r++) {
-      const row = rows[r];
-      if (!Array.isArray(row)) continue;
+
+    if (!Array.isArray(workHistory) || workHistory.length === 0) {
+      sheet.rows = [];
+      break;
+    }
+
+    const rows: (string | number | boolean | null)[][] = [];
+    for (let r = 0; r < workHistory.length; r++) {
+      const row = Array(columns.length).fill(null) as (string | number | boolean | null)[];
       const item = workHistory[r];
-      if (!item || typeof item !== "object") continue;
+      const it = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+
       if (candidateNo != null && colIndex["求職者NO"] !== undefined) {
         row[colIndex["求職者NO"]] = candidateNo;
       }
       if (colIndex["何社目"] !== undefined) {
         row[colIndex["何社目"]] = r + 1;
       }
-      const it = item as Record<string, unknown>;
+
       const map: Record<string, string | number | null | undefined> = {
         企業名: (it.company_name ?? it.企業名 ?? it.company) as string | undefined,
         事業内容: (it.business_content ?? it.事業内容 ?? it.business) as string | undefined,
@@ -157,29 +155,37 @@ export function applyWorkHistoryBackfill(
         退職理由_小: (it.resignation_reason_small ?? it.退職理由_小) as string | undefined,
         転職理由メモ: (it.resignation_reason ?? it.転職理由メモ ?? it.転職理由) as string | undefined,
       };
-      const period = it.period ?? it.在籍期間 ?? it.period_years;
-      if (period != null) {
-        const periodStr = String(period);
-        const yearMatch = periodStr.match(/(\d+)\s*年/);
-        const monthMatch = periodStr.match(/(\d+)\s*[ヶか]月/);
-        if (colIndex["在籍期間_年"] !== undefined) {
-          row[colIndex["在籍期間_年"]] = yearMatch
-            ? Number(yearMatch[1])
-            : (typeof it.在籍期間_年 === "number" || typeof it.在籍期間_年 === "string" ? it.在籍期間_年 : periodStr);
-        }
-        if (colIndex["在籍期間_ヶ月"] !== undefined) {
-          row[colIndex["在籍期間_ヶ月"]] = monthMatch
-            ? Number(monthMatch[1])
-            : (typeof it.在籍期間_ヶ月 === "number" ? it.在籍期間_ヶ月 : null);
-        }
-      }
       for (const [colName, val] of Object.entries(map)) {
-        if (colIndex[colName] === undefined) continue;
-        if (val != null && val !== "") {
+        if (colIndex[colName] !== undefined && val != null && val !== "") {
           row[colIndex[colName]] = val;
         }
       }
+
+      const period = it.period ?? it.在籍期間 ?? it.period_years;
+      const yearVal = it.在籍期間_年 ?? (period != null ? undefined : null);
+      const monthVal = it.在籍期間_ヶ月 ?? (period != null ? undefined : null);
+      if (yearVal !== undefined && yearVal !== null && colIndex["在籍期間_年"] !== undefined) {
+        row[colIndex["在籍期間_年"]] = typeof yearVal === "number" ? yearVal : Number(yearVal) || yearVal;
+      } else if (period != null) {
+        const periodStr = String(period);
+        const yearMatch = periodStr.match(/(\d+)\s*年/);
+        if (colIndex["在籍期間_年"] !== undefined) {
+          row[colIndex["在籍期間_年"]] = yearMatch ? Number(yearMatch[1]) : periodStr;
+        }
+      }
+      if (monthVal !== undefined && monthVal !== null && colIndex["在籍期間_ヶ月"] !== undefined) {
+        row[colIndex["在籍期間_ヶ月"]] = typeof monthVal === "number" ? monthVal : Number(monthVal) || monthVal;
+      } else if (period != null) {
+        const periodStr = String(period);
+        const monthMatch = periodStr.match(/(\d+)\s*[ヶか]月/);
+        if (colIndex["在籍期間_ヶ月"] !== undefined) {
+          row[colIndex["在籍期間_ヶ月"]] = monthMatch ? Number(monthMatch[1]) : null;
+        }
+      }
+
+      rows.push(row);
     }
+    sheet.rows = rows;
     break;
   }
   return data;
