@@ -1,18 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { fetchEmployees, type Employee } from "@/lib/portalApi";
 
 /** 求職者番号は5から始まる7桁の数字 */
 export const CANDIDATE_ID_REGEX = /^5\d{6}$/;
 
-export const CAREER_ADVISORS = [
-  "大野 将幸",
-  "安藤 嘉富",
-  "岡田 愛子",
-  "南條 雄三",
-] as const;
-
-export type CareerAdvisor = (typeof CAREER_ADVISORS)[number];
+// 後方互換性のために残す（型としてのみ使用）
+export type CareerAdvisor = string;
 
 export interface RegisteredRecord {
   candidateName: string;
@@ -39,7 +34,27 @@ export function RecordRegister({
 }) {
   const [name, setName] = useState("");
   const [id, setId] = useState("");
-  const [advisor, setAdvisor] = useState<CareerAdvisor>(CAREER_ADVISORS[0]);
+  const [advisor, setAdvisor] = useState<string>("");
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
+
+  // Portal APIから社員一覧を取得
+  useEffect(() => {
+    const loadEmployees = async () => {
+      try {
+        const data = await fetchEmployees();
+        setEmployees(data);
+        if (data.length > 0 && !advisor) {
+          setAdvisor(data[0].name);
+        }
+      } catch (err) {
+        console.error("社員一覧の取得に失敗しました:", err);
+      } finally {
+        setIsLoadingEmployees(false);
+      }
+    };
+    loadEmployees();
+  }, []);
 
   const handleAddClick = () => {
     onErrorClear();
@@ -101,13 +116,17 @@ export function RecordRegister({
           <label className="mb-1 block text-sm font-medium text-gray-700">担当キャリアアドバイザー</label>
           <select
             value={advisor}
-            onChange={(e) => setAdvisor(e.target.value as CareerAdvisor)}
-            disabled={disabled}
+            onChange={(e) => setAdvisor(e.target.value)}
+            disabled={disabled || isLoadingEmployees}
             className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
           >
-            {CAREER_ADVISORS.map((a) => (
-              <option key={a} value={a}>{a}</option>
-            ))}
+            {isLoadingEmployees ? (
+              <option value="">読み込み中...</option>
+            ) : (
+              employees.map((emp) => (
+                <option key={emp.employeeNo} value={emp.name}>{emp.name}</option>
+              ))
+            )}
           </select>
         </div>
         <button

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { UploadPanel, type UploadFiles } from "@/components/UploadPanel";
-import { CAREER_ADVISORS } from "@/components/RecordRegister";
+import { fetchEmployees, type Employee } from "@/lib/portalApi";
 import type { CommonAnalysisJson } from "@/types/commonAnalysis";
 import type { GoogleFormDefinition } from "@/types/googleForm";
 
@@ -43,6 +43,8 @@ export default function RecordDetailPage() {
   const [achievementCategory, setAchievementCategory] = useState("");
   const [questionText, setQuestionText] = useState("");
   const [questionGenError, setQuestionGenError] = useState<string | null>(null);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
   const [copyToast, setCopyToast] = useState(false);
   const [formCreateError, setFormCreateError] = useState<string | null>(null);
   const [formCreateWarning, setFormCreateWarning] = useState<string | null>(null);
@@ -87,6 +89,21 @@ export default function RecordDetailPage() {
   useEffect(() => {
     return () => { if (excelBlobUrl) URL.revokeObjectURL(excelBlobUrl); };
   }, [excelBlobUrl]);
+
+  // Portal APIから社員一覧を取得
+  useEffect(() => {
+    const loadEmployees = async () => {
+      try {
+        const data = await fetchEmployees();
+        setEmployees(data);
+      } catch (err) {
+        console.error("社員一覧の取得に失敗しました:", err);
+      } finally {
+        setIsLoadingEmployees(false);
+      }
+    };
+    loadEmployees();
+  }, []);
 
   const handleSave = useCallback(async () => {
     if (!candidateId) return;
@@ -451,9 +468,13 @@ export default function RecordDetailPage() {
                     onChange={(e) => setAdvisor(e.target.value)}
                     className="w-full max-w-md rounded border border-gray-300 px-3 py-2 text-sm"
                   >
-                    {CAREER_ADVISORS.map((a) => (
-                      <option key={a} value={a}>{a}</option>
-                    ))}
+                    {isLoadingEmployees ? (
+                      <option value="">読み込み中...</option>
+                    ) : (
+                      employees.map((emp) => (
+                        <option key={emp.employeeNo} value={emp.name}>{emp.name}</option>
+                      ))
+                    )}
                   </select>
                 </div>
                 <div className="flex items-center gap-3">

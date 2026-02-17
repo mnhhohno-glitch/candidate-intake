@@ -2,13 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
-  CAREER_ADVISORS,
   CANDIDATE_ID_REGEX,
-  type CareerAdvisor,
   type RegisteredRecord,
 } from "@/components/RecordRegister";
+import { fetchEmployees, type Employee } from "@/lib/portalApi";
 
 const CANDIDATE_ID_ERROR = "求職者番号は5から始まる7桁の数字で入力してください。";
 
@@ -19,6 +18,23 @@ export default function RegisterPage() {
   const [careerAdvisor, setCareerAdvisor] = useState<string>("");
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
+
+  // Portal APIから社員一覧を取得
+  useEffect(() => {
+    const loadEmployees = async () => {
+      try {
+        const data = await fetchEmployees();
+        setEmployees(data);
+      } catch (err) {
+        console.error("社員一覧の取得に失敗しました:", err);
+      } finally {
+        setIsLoadingEmployees(false);
+      }
+    };
+    loadEmployees();
+  }, []);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,14 +49,14 @@ export default function RegisterPage() {
       setFormError(CANDIDATE_ID_ERROR);
       return;
     }
-    if (!careerAdvisor || !CAREER_ADVISORS.includes(careerAdvisor as CareerAdvisor)) {
+    if (!careerAdvisor) {
       setFormError("キャリアアドバイザーを選択してください。");
       return;
     }
     const newRecord: RegisteredRecord = {
       candidateId: idTrim,
       candidateName: nameTrim,
-      careerAdvisor: careerAdvisor as CareerAdvisor,
+      careerAdvisor: careerAdvisor,
     };
     setIsSubmitting(true);
     try {
@@ -131,13 +147,14 @@ export default function RegisterPage() {
                     setCareerAdvisor(e.target.value);
                     setFormError(null);
                   }}
+                  disabled={isLoadingEmployees}
                   className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
                   required
                   aria-required="true"
                 >
-                  <option value="">選択してください</option>
-                  {CAREER_ADVISORS.map((a) => (
-                    <option key={a} value={a}>{a}</option>
+                  <option value="">{isLoadingEmployees ? "読み込み中..." : "選択してください"}</option>
+                  {employees.map((emp) => (
+                    <option key={emp.employeeNo} value={emp.name}>{emp.name}</option>
                   ))}
                 </select>
               </div>
