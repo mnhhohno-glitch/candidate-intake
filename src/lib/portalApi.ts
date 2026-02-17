@@ -13,6 +13,7 @@ export interface Candidate {
   id: string
   candidateNo: string
   name: string
+  careerAdvisor: string | null
 }
 
 export async function fetchEmployees(): Promise<Employee[]> {

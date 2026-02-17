@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import {
   type RegisteredRecord,
 } from "@/components/RecordRegister";
-import { fetchEmployees, fetchCandidates, type Employee, type Candidate } from "@/lib/portalApi";
+import { fetchCandidates, type Candidate } from "@/lib/portalApi";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -15,25 +15,18 @@ export default function RegisterPage() {
   const [careerAdvisor, setCareerAdvisor] = useState<string>("");
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [employees, setEmployees] = useState<Employee[]>([]);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
   const [isLoadingCandidates, setIsLoadingCandidates] = useState(true);
 
-  // Portal APIから社員・求職者一覧を取得
+  // Portal APIから求職者一覧を取得
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [empData, candData] = await Promise.all([
-          fetchEmployees(),
-          fetchCandidates(),
-        ]);
-        setEmployees(empData);
+        const candData = await fetchCandidates();
         setCandidates(candData);
       } catch (err) {
-        console.error("マスターデータの取得に失敗しました:", err);
+        console.error("求職者データの取得に失敗しました:", err);
       } finally {
-        setIsLoadingEmployees(false);
         setIsLoadingCandidates(false);
       }
     };
@@ -45,10 +38,6 @@ export default function RegisterPage() {
     setFormError(null);
     if (!selectedCandidateNo) {
       setFormError("求職者を選択してください。");
-      return;
-    }
-    if (!careerAdvisor) {
-      setFormError("キャリアアドバイザーを選択してください。");
       return;
     }
     const newRecord: RegisteredRecord = {
@@ -108,6 +97,7 @@ export default function RegisterPage() {
                     const candidate = candidates.find(c => c.candidateNo === candidateNo);
                     setSelectedCandidateNo(candidateNo);
                     setSelectedCandidateName(candidate?.name || "");
+                    setCareerAdvisor(candidate?.careerAdvisor || "");
                     setFormError(null);
                   }}
                   disabled={isLoadingCandidates}
@@ -128,26 +118,15 @@ export default function RegisterPage() {
                 )}
               </div>
               <div>
-                <label htmlFor="careerAdvisor" className="mb-1 block text-sm font-medium text-gray-700">
-                  担当キャリアアドバイザー <span className="text-red-600">*</span>
+                <label className="mb-1 block text-sm font-medium text-gray-700">
+                  担当キャリアアドバイザー
                 </label>
-                <select
-                  id="careerAdvisor"
-                  value={careerAdvisor}
-                  onChange={(e) => {
-                    setCareerAdvisor(e.target.value);
-                    setFormError(null);
-                  }}
-                  disabled={isLoadingEmployees}
-                  className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
-                  required
-                  aria-required="true"
-                >
-                  <option value="">{isLoadingEmployees ? "読み込み中..." : "選択してください"}</option>
-                  {employees.map((emp) => (
-                    <option key={emp.employeeNo} value={emp.name}>{emp.name}</option>
-                  ))}
-                </select>
+                <div className="w-full rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                  {careerAdvisor || (selectedCandidateNo ? "未設定" : "求職者を選択してください")}
+                </div>
+                <p className="mt-1 text-xs text-gray-500">
+                  ポータルで設定された担当CAが自動表示されます
+                </p>
               </div>
               {formError && (
                 <p className="text-sm text-red-600" role="alert">{formError}</p>
