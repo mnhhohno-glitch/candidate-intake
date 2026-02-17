@@ -4,49 +4,47 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import {
-  CANDIDATE_ID_REGEX,
   type RegisteredRecord,
 } from "@/components/RecordRegister";
-import { fetchEmployees, type Employee } from "@/lib/portalApi";
-
-const CANDIDATE_ID_ERROR = "求職者番号は5から始まる7桁の数字で入力してください。";
+import { fetchEmployees, fetchCandidates, type Employee, type Candidate } from "@/lib/portalApi";
 
 export default function RegisterPage() {
   const router = useRouter();
-  const [candidateNumber, setCandidateNumber] = useState("");
-  const [candidateName, setCandidateName] = useState("");
+  const [selectedCandidateNo, setSelectedCandidateNo] = useState("");
+  const [selectedCandidateName, setSelectedCandidateName] = useState("");
   const [careerAdvisor, setCareerAdvisor] = useState<string>("");
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
+  const [isLoadingCandidates, setIsLoadingCandidates] = useState(true);
 
-  // Portal APIから社員一覧を取得
+  // Portal APIから社員・求職者一覧を取得
   useEffect(() => {
-    const loadEmployees = async () => {
+    const loadData = async () => {
       try {
-        const data = await fetchEmployees();
-        setEmployees(data);
+        const [empData, candData] = await Promise.all([
+          fetchEmployees(),
+          fetchCandidates(),
+        ]);
+        setEmployees(empData);
+        setCandidates(candData);
       } catch (err) {
-        console.error("社員一覧の取得に失敗しました:", err);
+        console.error("マスターデータの取得に失敗しました:", err);
       } finally {
         setIsLoadingEmployees(false);
+        setIsLoadingCandidates(false);
       }
     };
-    loadEmployees();
+    loadData();
   }, []);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
-    const idTrim = candidateNumber.trim();
-    const nameTrim = candidateName.trim();
-    if (!idTrim || !nameTrim) {
-      setFormError("すべての項目を入力してください。");
-      return;
-    }
-    if (!CANDIDATE_ID_REGEX.test(idTrim)) {
-      setFormError(CANDIDATE_ID_ERROR);
+    if (!selectedCandidateNo) {
+      setFormError("求職者を選択してください。");
       return;
     }
     if (!careerAdvisor) {
@@ -54,8 +52,8 @@ export default function RegisterPage() {
       return;
     }
     const newRecord: RegisteredRecord = {
-      candidateId: idTrim,
-      candidateName: nameTrim,
+      candidateId: selectedCandidateNo,
+      candidateName: selectedCandidateName,
       careerAdvisor: careerAdvisor,
     };
     setIsSubmitting(true);
@@ -96,45 +94,38 @@ export default function RegisterPage() {
               <span className="text-2xl" aria-hidden>👤</span>
               新規求職者作成
             </h1>
-            <p className="mb-6 text-sm text-gray-500">すべての項目が必須です。</p>
+            <p className="mb-6 text-sm text-gray-500">ポータルに登録された求職者から選択してください。</p>
             <form onSubmit={handleRegister} className="space-y-4">
               <div>
-                <label htmlFor="candidateNumber" className="mb-1 block text-sm font-medium text-gray-700">
-                  求職者ナンバー <span className="text-red-600">*</span>
+                <label htmlFor="candidate" className="mb-1 block text-sm font-medium text-gray-700">
+                  求職者 <span className="text-red-600">*</span>
                 </label>
-                <input
-                  id="candidateNumber"
-                  type="text"
-                  value={candidateNumber}
+                <select
+                  id="candidate"
+                  value={selectedCandidateNo}
                   onChange={(e) => {
-                    setCandidateNumber(e.target.value);
+                    const candidateNo = e.target.value;
+                    const candidate = candidates.find(c => c.candidateNo === candidateNo);
+                    setSelectedCandidateNo(candidateNo);
+                    setSelectedCandidateName(candidate?.name || "");
                     setFormError(null);
                   }}
-                  maxLength={7}
-                  placeholder="例）5001234"
+                  disabled={isLoadingCandidates}
                   className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
                   required
-                />
-                <p className="mt-1 text-xs text-gray-500">
-                  5から始まる7桁の数字で入力してください (例:5001234)
-                </p>
-              </div>
-              <div>
-                <label htmlFor="candidateName" className="mb-1 block text-sm font-medium text-gray-700">
-                  求職者氏名 <span className="text-red-600">*</span>
-                </label>
-                <input
-                  id="candidateName"
-                  type="text"
-                  value={candidateName}
-                  onChange={(e) => {
-                    setCandidateName(e.target.value);
-                    setFormError(null);
-                  }}
-                  placeholder="例:山田 太郎"
-                  className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
-                  required
-                />
+                >
+                  <option value="">{isLoadingCandidates ? "読み込み中..." : "選択してください"}</option>
+                  {candidates.map((c) => (
+                    <option key={c.candidateNo} value={c.candidateNo}>
+                      {c.candidateNo} - {c.name}
+                    </option>
+                  ))}
+                </select>
+                {candidates.length === 0 && !isLoadingCandidates && (
+                  <p className="mt-1 text-xs text-amber-600">
+                    ポータルで求職者を登録してください
+                  </p>
+                )}
               </div>
               <div>
                 <label htmlFor="careerAdvisor" className="mb-1 block text-sm font-medium text-gray-700">
