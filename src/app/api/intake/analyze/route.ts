@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateWithGeminiWithPdf, parseJsonResponse } from "@/services/geminiClient";
-import { extractTextFromXlsx } from "@/services/extractText";
+import { generateWithGemini, parseJsonResponse } from "@/services/geminiClient";
+import { extractTextFromPdf, extractTextFromXlsx } from "@/services/extractText";
 import {
   isValidWebResumeFilename,
   extractCandidateNoFromFilename,
   WEB_RESUME_FILENAME_ERROR_MESSAGE,
 } from "@/services/candidateNoFromFilename";
-// Response Schema は Gemini API の制限により一旦無効化
-// import { buildCommonAnalysisResponseSchema } from "@/services/flagListSchema";
+import { buildCommonAnalysisPrompt } from "@/services/loadSpec";
 import type { CommonAnalysisJson } from "@/types/commonAnalysis";
 
 const MAX_RETRIES = 2;
@@ -140,58 +139,6 @@ function logInvalidStructure(parsed: unknown): void {
   );
 }
 
-function buildSystemInstruction(): string {
-  return `あなたは転職支援会社の業務システムにおいて、新規求職者データ用の「共通解析JSON」を出力するAIです。
-
-【あなたの役割】
-添付されたPDF（Web履歴書）を視覚的に正確に読み取り、面談メモ・フラグリストと照合して、FileMakerインポート用のデータを生成してください。
-
-【絶対ルール】
-1. PDFは画像として直接読み取る。テキスト抽出ではなく、視覚的なレイアウト（表・行・列）を正確に認識すること。
-2. 職歴は在籍順に正確に特定する。会社数・在籍期間を間違えない。
-3. フラグ項目は、提供されたJSON Schemaのenum値のいずれかを厳密に使用する。enumにない値は出力しない。
-4. 推測・捏造は禁止。根拠がある情報のみ出力する。
-5. 退職理由・時制は、面談メモから必ず読み取り、空欄にしない。
-6. 出力はJSON Schemaに完全に準拠したJSONのみ。説明文は含めない。
-
-【特に注意】
-- 在籍期間_年・在籍期間_ヶ月は、入社・退社日から計算し、空欄にしない
-- 職種フラグ・退職理由_大/中/小は、フラグリストの選択肢から選ぶ（言い換え禁止）
-- 初回面談まとめには面談要約のみ。求職者NOやキー情報は含めない
-- インポート用照合キーは求職者NO（7桁）に1を足した8桁の数値`;
-}
-
-function buildUserPrompt(
-  interviewLog: string,
-  flagListText: string,
-  pdfFileName: string | null,
-  candidateNo: string
-): string {
-  const filenameBlock = pdfFileName
-    ? `【求職者NO】PDFファイル名「${pdfFileName}」から「${candidateNo}」を使用してください。`
-    : `【求職者NO】${candidateNo}`;
-
-  return `${filenameBlock}
-
-【タスク】
-添付のPDF（Web履歴書）を視覚的に読み取り、下記の面談メモ・フラグリストと照合して、共通解析JSONを生成してください。
-
-【重要な処理順序】
-1. PDFを画像として読み取り、職歴（会社名・期間・職種）を在籍順に正確に特定する
-2. 面談メモから退職理由・転職意向・希望条件を抽出する
-3. フラグリストの選択肢に合わせてフラグ値を設定する
-4. 全ての情報をJSON Schemaに従って出力する
-
-【面談の通話文字起こしメモ】
-${interviewLog || "(なし)"}
-
-【フラグリスト（選択肢の参照用）】
-${flagListText || "(なし)"}
-
-【出力形式】
-JSON Schemaに完全準拠したJSONのみを出力してください。`;
-}
-
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
@@ -219,13 +166,13 @@ export async function POST(request: NextRequest) {
       ? extractCandidateNoFromFilename(pdfFile.name)
       : null;
 
-    let pdfBase64 = "";
+    let pdfText = "";
     let interviewLog = "";
     let flagListText = "";
 
     if (pdfFile?.size) {
       const buf = Buffer.from(await pdfFile.arrayBuffer());
-      pdfBase64 = buf.toString("base64");
+      pdfText = await extractTextFromPdf(buf);
     }
     if (interviewFile?.size) {
       interviewLog = await interviewFile.text();
@@ -235,48 +182,99 @@ export async function POST(request: NextRequest) {
       flagListText = await extractTextFromXlsx(buf);
     }
 
-    const systemInstruction = buildSystemInstruction();
-    const userPrompt = buildUserPrompt(
+    const { systemInstruction, userPrompt } = buildCommonAnalysisPrompt(
+      pdfText,
       interviewLog,
       flagListText,
-      pdfFile?.name ?? null,
-      registeredCandidateId!
+      pdfFile?.name ?? null
     );
 
     const analyzeStart = Date.now();
-    const pdfSizeKb = pdfBase64.length > 0 ? Math.round((pdfBase64.length * 3 / 4) / 1024) : 0;
+    const pdfLen = pdfText.length;
     const interviewLen = interviewLog.length;
     const flagLen = flagListText.length;
     console.log(
-      `[intake/analyze] Input: PDF=${pdfSizeKb}KB (direct), interview=${interviewLen} chars, flagList=${flagLen} chars`
+      `[intake/analyze] Input lengths: PDF=${pdfLen} chars, interview=${interviewLen} chars, flagList=${flagLen} chars, total prompt ~${systemInstruction.length + userPrompt.length} chars`
     );
-    console.log("[intake/analyze] Calling Gemini with PDF attachment (multimodal)...");
-    
+    if (pdfLen === 0 && pdfFile?.size) {
+      console.warn(
+        "[intake/analyze] PDF file was uploaded but extracted 0 characters. Excel/list may lack PDF-sourced data (e.g. work history, resume fields)."
+      );
+    }
+    console.log("[intake/analyze] Calling Gemini (common analysis)...");
     let lastError: Error | null = null;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const raw = await generateWithGeminiWithPdf({
+        const raw = await generateWithGemini({
           systemInstruction,
           userPrompt,
-          pdfBase64,
           responseMimeType: "application/json",
           maxOutputTokens: 16384,
-          temperature: 0.1,
         });
         const parsed = parseJsonResponse<unknown>(raw);
         const normalized = normalizeCommonAnalysis(parsed);
         if (isValidCommonAnalysis(normalized)) {
           normalized.extracted_facts.candidate_no = registeredCandidateId!;
-          const geminiTimeMs = Date.now() - analyzeStart;
+          let geminiTimeMs = Date.now() - analyzeStart;
+          const workHistoryEmpty = !Array.isArray(normalized.extracted_facts.work_history) || normalized.extracted_facts.work_history.length === 0;
+          if (interviewLog.trim().length > 100 && isResignationEmpty(normalized)) {
+            console.log("[intake/analyze] Resignation empty despite interview log — running 2nd pass (resignation re-extract)");
+            const secondPassSuffix = `
+
+【2パス目・退職理由の再抽出】
+上記の面談メモを再読し、退職理由・転職理由に該当する発話が1つでもあれば、filemaker_mapping（転職時期メモ・転職活動期間メモ等）または work_history の退職理由_大/中/小・転職理由メモに必ず反映してください。該当する発話が本当に無い場合のみ空のままにしてください。出力は同じ共通解析JSON形式で返してください。`;
+            try {
+              const raw2 = await generateWithGemini({
+                systemInstruction,
+                userPrompt: userPrompt + secondPassSuffix,
+                responseMimeType: "application/json",
+                maxOutputTokens: 16384,
+              });
+              const parsed2 = parseJsonResponse<unknown>(raw2);
+              const second = normalizeCommonAnalysis(parsed2);
+              if (isValidCommonAnalysis(second)) {
+                mergeResignationFromSecond(normalized, second);
+                geminiTimeMs = Date.now() - analyzeStart;
+                console.log(`[intake/analyze] 2nd pass (resignation) merged`);
+              }
+            } catch (e2) {
+              console.warn("[intake/analyze] 2nd pass failed, using 1st result:", e2 instanceof Error ? e2.message : String(e2));
+            }
+          }
+          if (interviewLog.trim().length > 500 && workHistoryEmpty) {
+            console.log("[intake/analyze] work_history empty despite interview log — running 2nd pass (work_history extract)");
+            const workHistoryPassSuffix = `
+
+【2パス目・職歴の再抽出】
+上記の面談メモ（とPDF）を再読し、職歴（在籍した会社・在籍期間・職種・退職理由など）を在籍順にすべて抽出してください。extracted_facts.work_history に、企業名・事業内容・在籍期間_年・在籍期間_ヶ月・職種フラグ・職種メモ・退職理由_大・退職理由_中・退職理由_小・転職理由メモ を日本語キーで必ず出力してください。1社でも言及があれば配列に含め、空配列にしないでください。出力は共通解析JSON形式（extracted_facts, filemaker_mapping, missing_items）で返し、work_history を必ず埋めてください。`;
+            try {
+              const rawWh = await generateWithGemini({
+                systemInstruction,
+                userPrompt: userPrompt + workHistoryPassSuffix,
+                responseMimeType: "application/json",
+                maxOutputTokens: 16384,
+              });
+              const parsedWh = parseJsonResponse<unknown>(rawWh);
+              const normWh = normalizeCommonAnalysis(parsedWh);
+              const wh = normWh.extracted_facts?.work_history;
+              if (Array.isArray(wh) && wh.length > 0) {
+                normalized.extracted_facts.work_history = wh;
+                geminiTimeMs = Date.now() - analyzeStart;
+                console.log(`[intake/analyze] 2nd pass (work_history) merged, rows=${wh.length}`);
+              }
+            } catch (eWh) {
+              console.warn("[intake/analyze] work_history 2nd pass failed:", eWh instanceof Error ? eWh.message : String(eWh));
+            }
+          }
           console.log(`[intake/analyze] Gemini done in ${geminiTimeMs}ms`);
           return NextResponse.json({
             ...normalized,
             _debug: {
-              pdfSizeKb,
+              pdfChars: pdfText.length,
               interviewChars: interviewLog.length,
               flagListChars: flagListText.length,
+              totalPromptChars: systemInstruction.length + userPrompt.length,
               geminiTimeMs,
-              mode: "multimodal_pdf",
             },
           });
         }
