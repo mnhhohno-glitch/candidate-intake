@@ -134,35 +134,49 @@ export default function RegisterPage() {
                   />
                 </div>
 
-                {/* 求職者選択 */}
-                <select
-                  id="candidate"
-                  value={selectedCandidateNo}
-                  onChange={(e) => {
-                    const candidateNo = e.target.value;
-                    const candidate = candidates.find(c => c.candidateNo === candidateNo);
-                    setSelectedCandidateNo(candidateNo);
-                    setSelectedCandidateName(candidate?.name || "");
-                    setCareerAdvisor(candidate?.careerAdvisor || "");
-                    setFormError(null);
-                  }}
-                  disabled={isLoadingCandidates}
-                  className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
-                  required
-                  size={5}
+                {/* 求職者選択リスト */}
+                <div
+                  className="h-40 w-full overflow-y-auto rounded border border-gray-300 bg-white"
+                  role="listbox"
+                  aria-label="求職者選択"
                 >
                   {isLoadingCandidates ? (
-                    <option value="">読み込み中...</option>
+                    <div className="px-3 py-2 text-sm text-gray-500">読み込み中...</div>
                   ) : filteredCandidates.length === 0 ? (
-                    <option value="">該当なし</option>
+                    <div className="px-3 py-2 text-sm text-gray-500">該当なし</div>
                   ) : (
                     filteredCandidates.map((c) => (
-                      <option key={c.candidateNo} value={c.candidateNo}>
+                      <div
+                        key={c.candidateNo}
+                        role="option"
+                        aria-selected={selectedCandidateNo === c.candidateNo}
+                        tabIndex={0}
+                        onClick={() => {
+                          setSelectedCandidateNo(c.candidateNo);
+                          setSelectedCandidateName(c.name);
+                          setCareerAdvisor(c.careerAdvisor || "");
+                          setFormError(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setSelectedCandidateNo(c.candidateNo);
+                            setSelectedCandidateName(c.name);
+                            setCareerAdvisor(c.careerAdvisor || "");
+                            setFormError(null);
+                          }
+                        }}
+                        className={`cursor-pointer px-3 py-2 text-sm ${
+                          selectedCandidateNo === c.candidateNo
+                            ? "bg-blue-600 text-white"
+                            : "hover:bg-gray-100"
+                        }`}
+                      >
                         {c.candidateNo} - {c.name}
-                      </option>
+                      </div>
                     ))
                   )}
-                </select>
+                </div>
                 <p className="mt-1 text-xs text-gray-500">
                   {filteredCandidates.length} 件表示 / 全 {candidates.length} 件
                 </p>
