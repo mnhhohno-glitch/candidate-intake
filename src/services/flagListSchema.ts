@@ -95,12 +95,21 @@ export function buildCommonAnalysisResponseSchema() {
           },
           evidence_map: {
             type: "object",
-            description: "重要項目の根拠箇所",
-            additionalProperties: {
-              type: "object",
-              properties: {
-                excerpt: { type: "string" },
-                position: { type: "string" },
+            description: "重要項目の根拠箇所（resignation_reason, tense等）",
+            properties: {
+              resignation_reason: {
+                type: "object",
+                properties: {
+                  excerpt: { type: "string" },
+                  position: { type: "string" },
+                },
+              },
+              tense: {
+                type: "object",
+                properties: {
+                  excerpt: { type: "string" },
+                  position: { type: "string" },
+                },
               },
             },
           },
