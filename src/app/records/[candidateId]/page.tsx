@@ -19,6 +19,7 @@ interface StoredRecord {
   formUrl?: string;
   formEditUrl?: string;
   formId?: string;
+  questionText?: string;
 }
 
 export default function RecordDetailPage() {
@@ -76,6 +77,9 @@ export default function RecordDetailPage() {
           setRecord(data);
           setName(data.candidateName ?? "");
           setAdvisor(data.careerAdvisor ?? "");
+          if (data.questionText) {
+            setQuestionText(data.questionText);
+          }
         }
       } catch {
         if (!cancelled) setNotFound(true);
@@ -237,6 +241,17 @@ export default function RecordDetailPage() {
         const text = (qtData as { candidate_question_text_only?: string }).candidate_question_text_only;
         generatedQuestionText = typeof text === "string" ? text : "";
         setQuestionText(generatedQuestionText);
+        if (generatedQuestionText) {
+          try {
+            await fetch(`/api/records/${encodeURIComponent(record.candidateId)}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ questionText: generatedQuestionText }),
+            });
+          } catch {
+            // ignore save error
+          }
+        }
       } catch (e) {
         setQuestionGenError(e instanceof Error ? e.message : "質問文の生成に失敗しました");
       }
@@ -660,7 +675,81 @@ export default function RecordDetailPage() {
                 </div>
               )}
               {step === "idle" && !running && (
-                <p className="text-sm text-gray-500">「アップロード」でファイルを添付し、実績ヒアリングの職種カテゴリを選択して「出力開始」を押すと、Excel・質問文・GoogleフォームURLがここに表示されます。</p>
+                <>
+                  {(record?.questionText || record?.formUrl) ? (
+                    <div className="flex flex-col gap-6 overflow-auto">
+                      {record?.lastOutputAt && (
+                        <div className="rounded border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+                          <p className="font-medium">前回の出力結果</p>
+                          <p className="mt-1 text-xs">最終出力: {new Date(record.lastOutputAt).toLocaleString("ja-JP")}</p>
+                        </div>
+                      )}
+                      <div>
+                        <p className="mb-2 text-sm font-medium text-gray-700">保存された質問文（候補者送付用）</p>
+                        <textarea
+                          readOnly
+                          value={questionText}
+                          rows={10}
+                          className="w-full rounded border border-gray-300 bg-gray-50 px-3 py-2 text-sm font-mono"
+                          placeholder="質問文はここに表示されます"
+                        />
+                        <div className="mt-2 flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={handleCopyQuestionText}
+                            disabled={!questionText}
+                            className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            コピー
+                          </button>
+                          {copyToast && <span className="text-xs text-green-600">コピーしました</span>}
+                        </div>
+                      </div>
+                      {record?.formUrl && (
+                        <div>
+                          <p className="mb-2 text-sm font-medium text-gray-700">保存されたGoogleフォームURL</p>
+                          <div className="rounded border border-gray-200 bg-gray-50 p-3">
+                            <p className="mb-2 break-all text-sm text-blue-700">
+                              <a
+                                href={record.formUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="underline"
+                              >
+                                {record.formUrl}
+                              </a>
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleCopyFormUrl(record.formUrl || "")}
+                                className="rounded border border-gray-300 bg-white px-2 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                              >
+                                URLをコピー
+                              </button>
+                              {formUrlCopyToast && <span className="text-xs text-green-600">コピーしました</span>}
+                            </div>
+                            {record.formEditUrl && (
+                              <p className="mt-2 text-xs text-gray-500">
+                                編集用:{" "}
+                                <a
+                                  href={record.formEditUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="underline"
+                                >
+                                  {record.formEditUrl}
+                                </a>
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">「アップロード」でファイルを添付し、実績ヒアリングの職種カテゴリを選択して「出力開始」を押すと、Excel・質問文・GoogleフォームURLがここに表示されます。</p>
+                  )}
+                </>
               )}
             </section>
           )}

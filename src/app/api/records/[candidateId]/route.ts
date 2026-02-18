@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getRecord, deleteRecord, addOrUpdateRecord } from "@/lib/recordsStore";
+import { getRecord, deleteRecord, addOrUpdateRecord, updateRecordQuestionText } from "@/lib/recordsStore";
 
 export async function GET(
   _request: NextRequest,
@@ -33,6 +33,7 @@ export async function PATCH(
     const body = await request.json();
     const candidateName = body.candidateName != null ? String(body.candidateName) : undefined;
     const careerAdvisor = body.careerAdvisor != null ? String(body.careerAdvisor) : undefined;
+    const questionText = body.questionText != null ? String(body.questionText) : undefined;
     const existing = await getRecord(candidateId);
     if (!existing) {
       return NextResponse.json({ error: "Record not found" }, { status: 404 });
@@ -42,6 +43,9 @@ export async function PATCH(
       candidateName: candidateName ?? existing.candidateName,
       careerAdvisor: careerAdvisor ?? existing.careerAdvisor,
     });
+    if (questionText !== undefined) {
+      await updateRecordQuestionText(candidateId, questionText);
+    }
     const record = await getRecord(candidateId);
     return NextResponse.json(record!);
   } catch (e) {

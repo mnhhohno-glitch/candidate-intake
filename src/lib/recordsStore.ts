@@ -41,6 +41,8 @@ export interface StoredRecord {
   formEditUrl?: string;
   /** フォームID */
   formId?: string;
+  /** 生成された質問文テキスト */
+  questionText?: string;
 }
 
 async function ensureDataDir() {
@@ -160,6 +162,24 @@ export async function updateRecordFormUrls(
     formUrl: urls.formUrl ?? records[idx].formUrl,
     formEditUrl: urls.formEditUrl ?? records[idx].formEditUrl,
     formId: urls.formId ?? records[idx].formId,
+  };
+  await writeRecords(records);
+  return records[idx];
+}
+
+/**
+ * 求職者レコードの質問文テキストを更新する（質問文生成後に呼ぶ）。
+ */
+export async function updateRecordQuestionText(
+  candidateId: string,
+  questionText: string
+): Promise<StoredRecord | null> {
+  const records = await readRecords();
+  const idx = records.findIndex((r) => r.candidateId === candidateId);
+  if (idx < 0) return null;
+  records[idx] = {
+    ...records[idx],
+    questionText,
   };
   await writeRecords(records);
   return records[idx];
