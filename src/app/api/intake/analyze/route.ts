@@ -7,6 +7,7 @@ import {
   WEB_RESUME_FILENAME_ERROR_MESSAGE,
 } from "@/services/candidateNoFromFilename";
 import { buildCommonAnalysisPrompt } from "@/services/loadSpec";
+import { buildCommonAnalysisResponseSchema } from "@/services/flagListSchema";
 import type { CommonAnalysisJson } from "@/types/commonAnalysis";
 
 const MAX_RETRIES = 2;
@@ -28,12 +29,18 @@ function isValidCommonAnalysis(obj: unknown): obj is CommonAnalysisJson {
 /**
  * Geminiの返却がラップされていたり欠けている場合に正規化する。
  * work_history は workHistory / 職歴 等の別名でも受け取り、必ず配列で extracted_facts に設定する。
+ * thought_process は分析の思考プロセスとして保持する。
  */
-function normalizeCommonAnalysis(parsed: unknown): CommonAnalysisJson {
+function normalizeCommonAnalysis(parsed: unknown): CommonAnalysisJson & { thought_process?: Record<string, unknown> } {
   let o = parsed as Record<string, unknown>;
   if (o?.common_analysis_json && typeof o.common_analysis_json === "object" && o.common_analysis_json !== null) {
     o = o.common_analysis_json as Record<string, unknown>;
   }
+
+  const thought_process = typeof o.thought_process === "object" && o.thought_process !== null && !Array.isArray(o.thought_process)
+    ? (o.thought_process as Record<string, unknown>)
+    : undefined;
+
   const extracted_facts = typeof o.extracted_facts === "object" && o.extracted_facts !== null && !Array.isArray(o.extracted_facts)
     ? (o.extracted_facts as Record<string, unknown>)
     : {};
@@ -58,7 +65,12 @@ function normalizeCommonAnalysis(parsed: unknown): CommonAnalysisJson {
     ? o.filemaker_mapping as Record<string, unknown>
     : {};
   const missing_items = Array.isArray(o.missing_items) ? o.missing_items : [];
-  return { extracted_facts, filemaker_mapping, missing_items } as CommonAnalysisJson;
+  
+  const result = { extracted_facts, filemaker_mapping, missing_items } as CommonAnalysisJson & { thought_process?: Record<string, unknown> };
+  if (thought_process) {
+    result.thought_process = thought_process;
+  }
+  return result;
 }
 
 /** 退職理由・転職理由が filemaker_mapping と work_history の両方で空かどうか */
@@ -201,7 +213,11 @@ export async function POST(request: NextRequest) {
         "[intake/analyze] PDF file was uploaded but extracted 0 characters. Excel/list may lack PDF-sourced data (e.g. work history, resume fields)."
       );
     }
-    console.log("[intake/analyze] Calling Gemini (common analysis)...");
+    
+    const responseSchema = buildCommonAnalysisResponseSchema();
+    let useSchema = true;
+    
+    console.log("[intake/analyze] Calling Gemini (common analysis with response schema)...");
     let lastError: Error | null = null;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
@@ -210,6 +226,8 @@ export async function POST(request: NextRequest) {
           userPrompt,
           responseMimeType: "application/json",
           maxOutputTokens: 16384,
+          temperature: 0.1,
+          ...(useSchema && { responseSchema }),
         });
         const parsed = parseJsonResponse<unknown>(raw);
         const normalized = normalizeCommonAnalysis(parsed);
@@ -266,15 +284,25 @@ export async function POST(request: NextRequest) {
               console.warn("[intake/analyze] work_history 2nd pass failed:", eWh instanceof Error ? eWh.message : String(eWh));
             }
           }
-          console.log(`[intake/analyze] Gemini done in ${geminiTimeMs}ms`);
+          console.log(`[intake/analyze] Gemini done in ${geminiTimeMs}ms (schema=${useSchema})`);
+          
+          const thoughtProcess = normalized.thought_process;
+          if (thoughtProcess) {
+            console.log("[intake/analyze] thought_process keys:", Object.keys(thoughtProcess).join(", "));
+          }
+          
           return NextResponse.json({
-            ...normalized,
+            extracted_facts: normalized.extracted_facts,
+            filemaker_mapping: normalized.filemaker_mapping,
+            missing_items: normalized.missing_items,
+            thought_process: thoughtProcess,
             _debug: {
               pdfChars: pdfText.length,
               interviewChars: interviewLog.length,
               flagListChars: flagListText.length,
               totalPromptChars: systemInstruction.length + userPrompt.length,
               geminiTimeMs,
+              schemaUsed: useSchema,
             },
           });
         }
@@ -283,6 +311,11 @@ export async function POST(request: NextRequest) {
       } catch (e) {
         lastError = e instanceof Error ? e : new Error(String(e));
         console.error("[intake/analyze] Attempt error:", lastError.message);
+        
+        if (useSchema && lastError.message.includes("400")) {
+          console.warn("[intake/analyze] Disabling responseSchema due to API error, retrying without schema...");
+          useSchema = false;
+        }
       }
     }
 

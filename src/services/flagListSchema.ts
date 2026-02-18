@@ -1,6 +1,8 @@
 /**
  * フラグリストの選択肢をEnumとして定義
  * Gemini API の responseSchema で使用
+ * 
+ * 注意: additionalProperties は Gemini API でサポートされないため使用しない
  */
 
 export const FLAG_ENUMS = {
@@ -56,15 +58,45 @@ export const TENSE_ENUM = ["未来", "過去", "混在", "不明"] as const;
 
 /**
  * Gemini API の responseSchema として使用する JSON Schema を生成
+ * Chain of Thought を強制するため、thought_process を最初に出力させる
  */
 export function buildCommonAnalysisResponseSchema() {
   return {
     type: "object",
-    required: ["extracted_facts", "filemaker_mapping", "missing_items"],
     properties: {
+      thought_process: {
+        type: "object",
+        description: "分析の思考プロセス。フラグを選ぶ前に必ず言語化すること",
+        properties: {
+          pdf_evidence: {
+            type: "string",
+            description: "PDFから読み取った客観的事実（職歴・学歴・スキル等）"
+          },
+          interview_evidence: {
+            type: "string",
+            description: "面談ログから読み取った本音・意向・感情"
+          },
+          contradiction_analysis: {
+            type: "string",
+            description: "PDFの建前と面談の本音の矛盾点・ギャップの分析"
+          },
+          resignation_reasoning: {
+            type: "string",
+            description: "退職理由の推論過程。どの発話からどのカテゴリを選んだか"
+          },
+          tense_reasoning: {
+            type: "string",
+            description: "時制（過去型/未来型）の判定根拠"
+          },
+          flag_fitting_notes: {
+            type: "string",
+            description: "フラグリストへのフィッティング時の判断メモ"
+          }
+        }
+      },
       extracted_facts: {
         type: "object",
-        required: ["candidate_no", "candidate_name", "work_history", "tense"],
+        description: "抽出された事実情報",
         properties: {
           candidate_no: { type: "string", description: "5で始まる7桁の求職者番号" },
           candidate_name: { type: "string", description: "求職者氏名" },
@@ -83,41 +115,21 @@ export function buildCommonAnalysisResponseSchema() {
                 退職理由_大: { type: "string", enum: [...FLAG_ENUMS.退職理由_大] },
                 退職理由_中: { type: "string", enum: [...FLAG_ENUMS.退職理由_中] },
                 退職理由_小: { type: "string", enum: [...FLAG_ENUMS.退職理由_小] },
-                転職理由メモ: { type: "string" },
-              },
-            },
+                転職理由メモ: { type: "string" }
+              }
+            }
           },
           tense: { type: "string", enum: [...TENSE_ENUM], description: "面談の時制" },
           reading_targets: {
             type: "array",
             items: { type: "string" },
-            description: "読むべき内容・確認すべき論点",
-          },
-          evidence_map: {
-            type: "object",
-            description: "重要項目の根拠箇所（resignation_reason, tense等）",
-            properties: {
-              resignation_reason: {
-                type: "object",
-                properties: {
-                  excerpt: { type: "string" },
-                  position: { type: "string" },
-                },
-              },
-              tense: {
-                type: "object",
-                properties: {
-                  excerpt: { type: "string" },
-                  position: { type: "string" },
-                },
-              },
-            },
-          },
-        },
+            description: "読むべき内容・確認すべき論点"
+          }
+        }
       },
       filemaker_mapping: {
         type: "object",
-        description: "基本情報シートの列名をキーとしたマッピング",
+        description: "FileMakerインポート用のマッピング",
         properties: {
           エージェント利用フラグ: { type: "string", enum: [...FLAG_ENUMS.エージェント利用フラグ] },
           エージェント利用メモ: { type: "string" },
@@ -182,14 +194,44 @@ export function buildCommonAnalysisResponseSchema() {
           次回面談予定メモ: { type: "string" },
           フリーメモ: { type: "string" },
           初回面談まとめ: { type: "string", description: "面談内容の要約。求職者NO等のキー情報は含めない" },
-          インポート用照合キー: { type: "integer", description: "求職者NO+1の8桁数値" },
-        },
+          インポート用照合キー: { type: "integer", description: "求職者NO+1の8桁数値" }
+        }
       },
       missing_items: {
         type: "array",
         items: { type: "string" },
-        description: "3つの資料のいずれにも記載がなかった項目",
+        description: "3つの資料のいずれにも記載がなかった項目"
+      }
+    }
+  };
+}
+
+/**
+ * 最小限のResponse Schema（疎通確認用）
+ */
+export function buildMinimalResponseSchema() {
+  return {
+    type: "object",
+    properties: {
+      extracted_facts: {
+        type: "object",
+        properties: {
+          candidate_no: { type: "string" },
+          candidate_name: { type: "string" },
+          tense: { type: "string", enum: [...TENSE_ENUM] }
+        }
       },
-    },
+      filemaker_mapping: {
+        type: "object",
+        properties: {
+          学歴フラグ: { type: "string", enum: [...FLAG_ENUMS.学歴フラグ] },
+          初回面談まとめ: { type: "string" }
+        }
+      },
+      missing_items: {
+        type: "array",
+        items: { type: "string" }
+      }
+    }
   };
 }

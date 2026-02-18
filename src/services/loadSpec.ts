@@ -18,7 +18,7 @@ function loadYamlSafe<T>(filename: string): T {
 export type Spec01 = {
   role?: string;
   tone?: string;
-  absolute_rules?: string[];
+  absolute_rules?: string[] | string;
   output_structure?: unknown;
   input_sections?: { name: string; description: string }[];
   basic_info_sheet_columns?: string[];
@@ -26,6 +26,13 @@ export type Spec01 = {
   input_rules?: string[];
   procedure?: string;
   final_instruction?: string;
+  three_layer_analysis?: {
+    layer_1_evidence_extraction?: { name?: string; description?: string; output_to?: string };
+    layer_2_contradiction_analysis?: { name?: string; description?: string; output_to?: string };
+    layer_3_flag_fitting?: { name?: string; description?: string; output_to?: string };
+  };
+  resignation_category_guide?: Record<string, unknown>;
+  tense_determination?: Record<string, unknown>;
 };
 
 export type Spec02 = {
@@ -155,6 +162,7 @@ ${extraUserPromptSuffix ? `\n\n${extraUserPromptSuffix}` : ""}
 /**
  * 01 共通解析プロンプトを読み、Gemini用の systemInstruction と userPrompt を組み立てる。
  * pdfFileName を渡した場合、求職者NOはファイル名からのみ抽出する旨を明示する（正本プロンプト準拠）。
+ * 3層分析（エビデンス抽出→矛盾分析→フラグフィッティング）をChain of Thoughtで強制する。
  */
 export function buildCommonAnalysisPrompt(
   pdfText: string,
@@ -166,11 +174,39 @@ export function buildCommonAnalysisPrompt(
 
   const role = spec.role ?? "";
   const tone = spec.tone ?? "";
-  const rules = (spec.absolute_rules ?? []).join("\n  - ");
+  const rulesRaw = spec.absolute_rules;
+  const rules = Array.isArray(rulesRaw) ? rulesRaw.join("\n  - ") : (rulesRaw ?? "");
   const procedure = spec.procedure ?? "";
   const finalInstruction = spec.final_instruction ?? "";
+  
+  const threeLayer = spec.three_layer_analysis;
+  const threeLayerBlock = threeLayer ? `
+## 3層分析フレームワーク（Chain of Thought）
 
-  const systemInstruction = `${role}\n\ntone: ${tone}\n\nabsolute_rules:\n  - ${rules}\n\nprocedure:\n${procedure}\n\n${finalInstruction}`;
+【第1層：${threeLayer.layer_1_evidence_extraction?.name ?? "エビデンス抽出"}】
+${threeLayer.layer_1_evidence_extraction?.description ?? "PDFと面談ログから客観的事実を抽出する。"}
+出力先: ${threeLayer.layer_1_evidence_extraction?.output_to ?? "thought_process.pdf_evidence, thought_process.interview_evidence"}
+
+【第2層：${threeLayer.layer_2_contradiction_analysis?.name ?? "矛盾分析"}】
+${threeLayer.layer_2_contradiction_analysis?.description ?? "PDFの「建前」と面談の「本音」のギャップを分析する。"}
+出力先: ${threeLayer.layer_2_contradiction_analysis?.output_to ?? "thought_process.contradiction_analysis"}
+
+【第3層：${threeLayer.layer_3_flag_fitting?.name ?? "フラグリストへのフィッティング"}】
+${threeLayer.layer_3_flag_fitting?.description ?? "分析結果をフラグリストの定義に厳密にマッピングする。"}
+出力先: ${threeLayer.layer_3_flag_fitting?.output_to ?? "thought_process.resignation_reasoning, thought_process.tense_reasoning, thought_process.flag_fitting_notes"}
+` : "";
+
+  const systemInstruction = `${role}
+
+tone: ${tone}
+
+absolute_rules:
+  - ${rules}
+${threeLayerBlock}
+procedure:
+${procedure}
+
+${finalInstruction}`;
 
   const filenameBlock =
     pdfFileName && pdfFileName.trim()
@@ -196,10 +232,25 @@ export function buildCommonAnalysisPrompt(
 ・面談メモは書き起こしのため、全文を走査し退職理由・転職理由の言及があれば必ず filemaker_mapping または work_history に出力すること。空欄禁止。
 ・時制（未来型/過去型）を判定し extracted_facts.tense に「未来」「過去」「混在」「不明」のいずれかで必ず出力すること。
 ・読むべき内容・確認すべき論点は extracted_facts.reading_targets に箇条書きで出力すること。
-・重要項目には根拠となる抜粋を evidence_map に記載すること。`
+
+【Chain of Thought 必須】
+・出力JSONの最初に必ず thought_process オブジェクトを含め、以下を言語化すること：
+  - pdf_evidence: PDFから読み取った客観的事実
+  - interview_evidence: 面談ログから読み取った本音・意向
+  - contradiction_analysis: 建前と本音のギャップ分析
+  - resignation_reasoning: 退職理由カテゴリ選定の根拠
+  - tense_reasoning: 時制判定の根拠
+  - flag_fitting_notes: フラグ選定時の判断メモ`
       : "";
 
-  const userPrompt = `【タスク】添付3つのファイル（面談の通話文字起こしメモ・Web履歴書PDF・フラグリスト）をすべて読み取り、必要な情報をフラグリストの形式に合わせて書き出してください。filemaker_mapping のキーは「基本情報シートの列名」と完全一致させること。表記が1文字でも違うとExcelに反映されません。フラグ列の値はフラグリストに記載されている選択肢の文言をそのまま使ってください。
+  const userPrompt = `【タスク】添付3つのファイル（面談の通話文字起こしメモ・Web履歴書PDF・フラグリスト）をすべて読み取り、必要な情報をフラグリストの形式に合わせて書き出してください。
+
+【重要：出力前に必ず思考プロセスを記載すること】
+1. まず thought_process で3層分析を言語化する（PDFの事実、面談の本音、矛盾点、退職理由の推論、時制判定、フラグ選定メモ）
+2. 次に extracted_facts で事実情報を整理する
+3. 最後に filemaker_mapping でフラグをマッピングする
+
+filemaker_mapping のキーは「基本情報シートの列名」と完全一致させること。表記が1文字でも違うとExcelに反映されません。フラグ列の値はフラグリストに記載されている選択肢の文言をそのまま使ってください。
 
 【基本情報シートの列名（filemaker_mapping のキーはこのいずれかと完全一致させること）】
 ${basicColumns}
@@ -217,7 +268,7 @@ ${pdfText || "(なし)"}
 【フラグリスト（シート「リスト」。フラグ列の値はここに記載されている文言をそのままコピーすること）】
 ${flagListText || "(なし)"}
 
-上記3つをすべて読み、言及がある列は上記の列名のどれかと完全一致するキーで filemaker_mapping に追加すること。フラグはフラグリストの表記をそのまま使うこと。出力はJSONのみ。`;
+上記3つをすべて読み、3層分析を実行してから、言及がある列は上記の列名のどれかと完全一致するキーで filemaker_mapping に追加すること。フラグはフラグリストの表記をそのまま使うこと。出力はJSONのみ。`;
   return { systemInstruction, userPrompt };
 }
 
