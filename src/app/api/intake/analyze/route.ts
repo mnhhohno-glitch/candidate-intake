@@ -6,7 +6,8 @@ import {
   extractCandidateNoFromFilename,
   WEB_RESUME_FILENAME_ERROR_MESSAGE,
 } from "@/services/candidateNoFromFilename";
-import { buildCommonAnalysisResponseSchema } from "@/services/flagListSchema";
+// Response Schema は Gemini API の制限により一旦無効化
+// import { buildCommonAnalysisResponseSchema } from "@/services/flagListSchema";
 import type { CommonAnalysisJson } from "@/types/commonAnalysis";
 
 const MAX_RETRIES = 2;
@@ -241,7 +242,6 @@ export async function POST(request: NextRequest) {
       pdfFile?.name ?? null,
       registeredCandidateId!
     );
-    const responseSchema = buildCommonAnalysisResponseSchema();
 
     const analyzeStart = Date.now();
     const pdfSizeKb = pdfBase64.length > 0 ? Math.round((pdfBase64.length * 3 / 4) / 1024) : 0;
@@ -260,7 +260,6 @@ export async function POST(request: NextRequest) {
           userPrompt,
           pdfBase64,
           responseMimeType: "application/json",
-          responseSchema,
           maxOutputTokens: 16384,
           temperature: 0.1,
         });
