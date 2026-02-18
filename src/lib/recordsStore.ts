@@ -69,7 +69,9 @@ async function writeRecords(records: StoredRecord[]) {
 }
 
 export async function listRecords(): Promise<StoredRecord[]> {
-  return readRecords();
+  const records = await readRecords();
+  // 求職者番号（candidateId）の降順でソート
+  return records.sort((a, b) => b.candidateId.localeCompare(a.candidateId));
 }
 
 export async function addOrUpdateRecord(record: {
