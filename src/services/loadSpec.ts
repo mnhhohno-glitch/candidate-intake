@@ -31,6 +31,11 @@ export type Spec01 = {
     layer_2_contradiction_analysis?: { name?: string; description?: string; output_to?: string };
     layer_3_flag_fitting?: { name?: string; description?: string; output_to?: string };
   };
+  three_step_reasoning?: {
+    step_1_fact_collection?: { name?: string; description?: string; output_to?: string };
+    step_2_contradiction_resolution?: { name?: string; description?: string; output_to?: string };
+    step_3_inference?: { name?: string; description?: string; output_to?: string };
+  };
   resignation_category_guide?: Record<string, unknown>;
   tense_determination?: Record<string, unknown>;
 };
@@ -179,21 +184,21 @@ export function buildCommonAnalysisPrompt(
   const procedure = spec.procedure ?? "";
   const finalInstruction = spec.final_instruction ?? "";
   
-  const threeLayer = spec.three_layer_analysis;
-  const threeLayerBlock = threeLayer ? `
-## 3層分析フレームワーク（Chain of Thought）
+  const threeStep = spec.three_step_reasoning;
+  const threeStepBlock = threeStep ? `
+## 3ステップ推論フレームワーク（Deep Think）
 
-【第1層：${threeLayer.layer_1_evidence_extraction?.name ?? "エビデンス抽出"}】
-${threeLayer.layer_1_evidence_extraction?.description ?? "PDFと面談ログから客観的事実を抽出する。"}
-出力先: ${threeLayer.layer_1_evidence_extraction?.output_to ?? "thought_process.pdf_evidence, thought_process.interview_evidence"}
+【ステップ1：${threeStep.step_1_fact_collection?.name ?? "事実収集"}】
+${threeStep.step_1_fact_collection?.description ?? "PDFの建前データとログの本音データを分離抽出する。"}
+出力先: ${threeStep.step_1_fact_collection?.output_to ?? "analysis_thought.evidence_clues"}
 
-【第2層：${threeLayer.layer_2_contradiction_analysis?.name ?? "矛盾分析"}】
-${threeLayer.layer_2_contradiction_analysis?.description ?? "PDFの「建前」と面談の「本音」のギャップを分析する。"}
-出力先: ${threeLayer.layer_2_contradiction_analysis?.output_to ?? "thought_process.contradiction_analysis"}
+【ステップ2：${threeStep.step_2_contradiction_resolution?.name ?? "矛盾解消"}】
+${threeStep.step_2_contradiction_resolution?.description ?? "PDFと面談ログに食い違いがある場合、ログ（本音）を優先して判定する。"}
+出力先: ${threeStep.step_2_contradiction_resolution?.output_to ?? "analysis_thought.pdf_vs_interview_gap"}
 
-【第3層：${threeLayer.layer_3_flag_fitting?.name ?? "フラグリストへのフィッティング"}】
-${threeLayer.layer_3_flag_fitting?.description ?? "分析結果をフラグリストの定義に厳密にマッピングする。"}
-出力先: ${threeLayer.layer_3_flag_fitting?.output_to ?? "thought_process.resignation_reasoning, thought_process.tense_reasoning, thought_process.flag_fitting_notes"}
+【ステップ3：${threeStep.step_3_inference?.name ?? "妥当値推論"}】
+${threeStep.step_3_inference?.description ?? "資料に直接記述がない項目も、周囲の文脈から最も妥当な値をプロとして推論する。"}
+出力先: ${threeStep.step_3_inference?.output_to ?? "analysis_thought.inference_logic"}
 ` : "";
 
   const systemInstruction = `${role}
@@ -202,7 +207,7 @@ tone: ${tone}
 
 absolute_rules:
   - ${rules}
-${threeLayerBlock}
+${threeStepBlock}
 procedure:
 ${procedure}
 
@@ -233,29 +238,38 @@ ${finalInstruction}`;
 ・時制（未来型/過去型）を判定し extracted_facts.tense に「未来」「過去」「混在」「不明」のいずれかで必ず出力すること。
 ・読むべき内容・確認すべき論点は extracted_facts.reading_targets に箇条書きで出力すること。
 
-【Chain of Thought 必須】
-・出力JSONの最初に必ず thought_process オブジェクトを含め、以下を言語化すること：
-  - pdf_evidence: PDFから読み取った客観的事実
-  - interview_evidence: 面談ログから読み取った本音・意向
-  - contradiction_analysis: 建前と本音のギャップ分析
-  - resignation_reasoning: 退職理由カテゴリ選定の根拠
-  - tense_reasoning: 時制判定の根拠
-  - flag_fitting_notes: フラグ選定時の判断メモ`
+【Deep Think 必須：analysis_thought を最初に出力】
+・出力JSONの最初に必ず analysis_thought オブジェクトを含め、以下を言語化すること：
+  - career_summary: 求職者の経歴・現状の要約（AIによる事前解釈）
+  - evidence_clues: 判断の根拠となった面談ログの具体的な発言やPDFの記載
+  - inference_logic: 明記がない情報をプロの洞察でどう推論したかの論理過程
+  - pdf_vs_interview_gap: PDFの建前と面談の本音の食い違い分析
+  - resignation_analysis: 退職理由の分析（過去型/未来型、カテゴリ選定理由）
+  - tense_determination: 時制判定の根拠`
       : "";
 
   const userPrompt = `【タスク】添付3つのファイル（面談の通話文字起こしメモ・Web履歴書PDF・フラグリスト）をすべて読み取り、必要な情報をフラグリストの形式に合わせて書き出してください。
 
-【重要：出力前に必ず思考プロセスを記載すること】
-1. まず thought_process で3層分析を言語化する（PDFの事実、面談の本音、矛盾点、退職理由の推論、時制判定、フラグ選定メモ）
+【重要：Deep Think プロセス必須】
+1. まず analysis_thought で3ステップ推論を実行・言語化する
+   - career_summary: 求職者の経歴・現状の要約
+   - evidence_clues: 判断根拠となる発言・記載の引用
+   - inference_logic: 直接記述がない項目の推論過程
+   - pdf_vs_interview_gap: 建前と本音の食い違い分析
+   - resignation_analysis: 退職理由の分析
+   - tense_determination: 時制判定の根拠
 2. 次に extracted_facts で事実情報を整理する
 3. 最後に filemaker_mapping でフラグをマッピングする
 
-filemaker_mapping のキーは「基本情報シートの列名」と完全一致させること。表記が1文字でも違うとExcelに反映されません。フラグ列の値はフラグリストに記載されている選択肢の文言をそのまま使ってください。
+【フラグ値は enum 完全一致】
+filemaker_mapping のキーは「基本情報シートの列名」と一字一句完全一致させること。
+フラグ列の値はフラグリストに記載されている選択肢の文言をそのままコピーすること。
+言い換え・要約は禁止。「〜ような」「〜系」などの表現は使わない。
 
 【基本情報シートの列名（filemaker_mapping のキーはこのいずれかと完全一致させること）】
 ${basicColumns}
 ${inputRulesBlock}
-以下は3つの資料の全文です。面談メモ・PDF・フラグリストをそれぞれ個別に解析し、すべて最初から最後まで読んだうえで、記載がある項目を漏れなく filemaker_mapping に追加し、メモ列には要約を書いてください。確認用ステップで漏れがないか見直したうえで出力してください。
+以下は3つの資料の全文です。面談メモ・PDF・フラグリストをそれぞれ個別に解析し、すべて最初から最後まで読んだうえで、記載がある項目を漏れなく filemaker_mapping に追加し、メモ列には要約を書いてください。
 ${filenameBlock}
 ${interviewQualityGate}
 
@@ -268,7 +282,9 @@ ${pdfText || "(なし)"}
 【フラグリスト（シート「リスト」。フラグ列の値はここに記載されている文言をそのままコピーすること）】
 ${flagListText || "(なし)"}
 
-上記3つをすべて読み、3層分析を実行してから、言及がある列は上記の列名のどれかと完全一致するキーで filemaker_mapping に追加すること。フラグはフラグリストの表記をそのまま使うこと。出力はJSONのみ。`;
+上記3つをすべて読み、3ステップ推論を実行してから、言及がある列は上記の列名のどれかと完全一致するキーで filemaker_mapping に追加すること。
+直接記述がない項目も、周囲の文脈から最も妥当な値を推論し、安易にnullや空欄にしないこと。
+出力はJSONのみ。`;
   return { systemInstruction, userPrompt };
 }
 

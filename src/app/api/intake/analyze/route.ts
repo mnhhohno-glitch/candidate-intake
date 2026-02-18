@@ -7,7 +7,10 @@ import {
   WEB_RESUME_FILENAME_ERROR_MESSAGE,
 } from "@/services/candidateNoFromFilename";
 import { buildCommonAnalysisPrompt } from "@/services/loadSpec";
-import { buildCommonAnalysisResponseSchema } from "@/services/flagListSchema";
+import { 
+  buildCommonAnalysisResponseSchema,
+  adaptGeminiResponseToCommonAnalysis,
+} from "@/services/flagListSchema";
 import type { CommonAnalysisJson } from "@/types/commonAnalysis";
 
 const MAX_RETRIES = 2;
@@ -29,7 +32,7 @@ function isValidCommonAnalysis(obj: unknown): obj is CommonAnalysisJson {
 /**
  * Geminiの返却がラップされていたり欠けている場合に正規化する。
  * work_history は workHistory / 職歴 等の別名でも受け取り、必ず配列で extracted_facts に設定する。
- * thought_process は分析の思考プロセスとして保持する。
+ * analysis_thought / thought_process は分析の思考プロセスとして保持する。
  */
 function normalizeCommonAnalysis(parsed: unknown): CommonAnalysisJson & { thought_process?: Record<string, unknown> } {
   let o = parsed as Record<string, unknown>;
@@ -37,19 +40,24 @@ function normalizeCommonAnalysis(parsed: unknown): CommonAnalysisJson & { though
     o = o.common_analysis_json as Record<string, unknown>;
   }
 
-  const thought_process = typeof o.thought_process === "object" && o.thought_process !== null && !Array.isArray(o.thought_process)
-    ? (o.thought_process as Record<string, unknown>)
-    : undefined;
+  const analysisThought = o.analysis_thought as Record<string, unknown> | undefined;
+  const legacyThoughtProcess = o.thought_process as Record<string, unknown> | undefined;
+  const thought_process = (
+    typeof analysisThought === "object" && analysisThought !== null && !Array.isArray(analysisThought)
+  ) ? analysisThought : (
+    typeof legacyThoughtProcess === "object" && legacyThoughtProcess !== null && !Array.isArray(legacyThoughtProcess)
+  ) ? legacyThoughtProcess : undefined;
 
-  const extracted_facts = typeof o.extracted_facts === "object" && o.extracted_facts !== null && !Array.isArray(o.extracted_facts)
-    ? (o.extracted_facts as Record<string, unknown>)
-    : {};
+  const adapted = adaptGeminiResponseToCommonAnalysis(o);
+  
+  let extracted_facts = adapted.extracted_facts;
   let work_history = extracted_facts.work_history;
   if (!Array.isArray(work_history)) {
-    const raw = (extracted_facts.workHistory ?? extracted_facts.職歴 ?? extracted_facts["work history"]) as unknown;
+    const raw = (extracted_facts.workHistory ?? (extracted_facts as Record<string, unknown>).職歴 ?? extracted_facts["work history"]) as unknown;
     work_history = Array.isArray(raw) ? raw : [];
   }
   extracted_facts.work_history = work_history;
+  
   if (extracted_facts.tense === undefined && (extracted_facts as Record<string, unknown>).時制 !== undefined) {
     extracted_facts.tense = (extracted_facts as Record<string, unknown>).時制 as string;
   }
@@ -57,16 +65,13 @@ function normalizeCommonAnalysis(parsed: unknown): CommonAnalysisJson & { though
     const alt = (extracted_facts as Record<string, unknown>).読むべき内容;
     extracted_facts.reading_targets = Array.isArray(alt) ? (alt as string[]) : [];
   }
-  if (extracted_facts.evidence_map !== undefined && (typeof extracted_facts.evidence_map !== "object" || Array.isArray(extracted_facts.evidence_map))) {
-    delete extracted_facts.evidence_map;
-  }
 
-  const filemaker_mapping = typeof o.filemaker_mapping === "object" && o.filemaker_mapping !== null && !Array.isArray(o.filemaker_mapping)
-    ? o.filemaker_mapping as Record<string, unknown>
-    : {};
-  const missing_items = Array.isArray(o.missing_items) ? o.missing_items : [];
+  const result = { 
+    extracted_facts, 
+    filemaker_mapping: adapted.filemaker_mapping, 
+    missing_items: adapted.missing_items 
+  } as CommonAnalysisJson & { thought_process?: Record<string, unknown> };
   
-  const result = { extracted_facts, filemaker_mapping, missing_items } as CommonAnalysisJson & { thought_process?: Record<string, unknown> };
   if (thought_process) {
     result.thought_process = thought_process;
   }
