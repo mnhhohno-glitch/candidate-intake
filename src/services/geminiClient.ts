@@ -2,11 +2,10 @@
  * Gemini API 呼び出しクライアント
  * 環境変数 GEMINI_API_KEY を使用
  * 
- * Model: gemini-2.5-flash-preview-05-20 (最新の高性能Flashモデル)
- * Deep Think能力を活用した高度な推論が可能
+ * Model: gemini-2.0-flash (安定版の高速モデル)
  */
 
-const GEMINI_MODEL = "gemini-2.5-flash-preview-05-20";
+const GEMINI_MODEL = "gemini-3-flash-preview";
 const GEMINI_API_URL =
   `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
