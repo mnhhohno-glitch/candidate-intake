@@ -48,7 +48,6 @@ export default function RecordDetailPage() {
   const [questionGenError, setQuestionGenError] = useState<string | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
-  const [copyToast, setCopyToast] = useState(false);
   const [formCreateError, setFormCreateError] = useState<string | null>(null);
   const [formCreateWarning, setFormCreateWarning] = useState<string | null>(null);
   const [formResponseUrl, setFormResponseUrl] = useState<string | null>(null);
@@ -271,19 +270,6 @@ export default function RecordDetailPage() {
     }
   }, [record, files, excelBlobUrl, achievementCategory, name, useCachedAnalysis]);
 
-  const handleCopyQuestionText = useCallback(() => {
-    if (!questionText) return;
-    navigator.clipboard.writeText(questionText).then(
-      () => {
-        setCopyToast(true);
-        setTimeout(() => setCopyToast(false), 2000);
-      },
-      () => {
-        setQuestionGenError("コピーに失敗しました");
-      }
-    );
-  }, [questionText]);
-
   const handleCopyFormUrl = useCallback((url: string) => {
     navigator.clipboard.writeText(url).then(
       () => {
@@ -295,7 +281,11 @@ export default function RecordDetailPage() {
   }, []);
 
   const handleCreateForm = useCallback(async () => {
-    if (!record?.candidateId || !questionText.trim()) return;
+    if (!record?.candidateId) return;
+    if (!questionText.trim()) {
+      setFormCreateError("質問文が生成されていないため、フォームを作成できません。先に「出力開始」を実行してください。");
+      return;
+    }
     setFormCreating(true);
     setFormCreateError(null);
     setFormCreateWarning(null);
@@ -607,8 +597,11 @@ export default function RecordDetailPage() {
               <h2 className="mb-4 text-lg font-semibold text-gray-900">出力結果</h2>
               {running && (
                 <div className="rounded border border-blue-200 bg-blue-50 p-4 text-sm text-gray-800">
-                  <p className="font-medium">{stepLabel}</p>
-                  <p className="mt-1 text-xs text-gray-500">しばらくお待ちください。</p>
+                  <div className="flex items-center gap-3">
+                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+                    <p className="font-medium animate-pulse">{stepLabel}</p>
+                  </div>
+                  <p className="mt-2 text-xs text-gray-500">解析中です。少々お待ちください。</p>
                 </div>
               )}
               {step === "error" && error && (
@@ -630,32 +623,6 @@ export default function RecordDetailPage() {
                       </button>
                     </div>
                   )}
-                  <div>
-                    <p className="mb-2 text-sm font-medium text-gray-700">生成された質問文（候補者送付用）</p>
-                    {questionGenError && (
-                      <div className="mb-2 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-800" role="alert">
-                        {questionGenError}
-                      </div>
-                    )}
-                    <textarea
-                      readOnly
-                      value={questionText}
-                      rows={10}
-                      className="w-full rounded border border-gray-300 bg-gray-50 px-3 py-2 text-sm font-mono"
-                      placeholder="質問文はここに表示されます"
-                    />
-                    <div className="mt-2 flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={handleCopyQuestionText}
-                        disabled={!questionText}
-                        className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                      >
-                        コピー
-                      </button>
-                      {copyToast && <span className="text-xs text-green-600">コピーしました</span>}
-                    </div>
-                  </div>
                   <div>
                     <p className="mb-2 text-sm font-medium text-gray-700">Googleフォーム</p>
                     {formCreateError && (
@@ -706,22 +673,14 @@ export default function RecordDetailPage() {
                       </div>
                     ) : (
                       <div className="rounded border border-gray-200 bg-gray-50 p-3">
-                        <p className="mb-3 text-sm text-gray-600">
-                          質問文を確認してからGoogleフォームを作成できます。
-                        </p>
                         <button
                           type="button"
                           onClick={handleCreateForm}
-                          disabled={!questionText.trim() || formCreating}
+                          disabled={formCreating}
                           className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
                         >
                           {formCreating ? "作成中..." : "Googleフォームを作成"}
                         </button>
-                        {!questionText.trim() && (
-                          <p className="mt-2 text-xs text-amber-600">
-                            質問文が生成されていないため、フォームを作成できません。
-                          </p>
-                        )}
                       </div>
                     )}
                   </div>
@@ -729,7 +688,7 @@ export default function RecordDetailPage() {
               )}
               {step === "idle" && !running && (
                 <>
-                  {(record?.questionText || record?.formUrl) ? (
+                  {(record?.lastOutputAt || record?.formUrl) ? (
                     <div className="flex flex-col gap-6 overflow-auto">
                       {record?.lastOutputAt && (
                         <div className="rounded border border-green-200 bg-green-50 p-3 text-sm text-green-800">
@@ -737,27 +696,6 @@ export default function RecordDetailPage() {
                           <p className="mt-1 text-xs">最終出力: {new Date(record.lastOutputAt).toLocaleString("ja-JP")}</p>
                         </div>
                       )}
-                      <div>
-                        <p className="mb-2 text-sm font-medium text-gray-700">保存された質問文（候補者送付用）</p>
-                        <textarea
-                          readOnly
-                          value={questionText}
-                          rows={10}
-                          className="w-full rounded border border-gray-300 bg-gray-50 px-3 py-2 text-sm font-mono"
-                          placeholder="質問文はここに表示されます"
-                        />
-                        <div className="mt-2 flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={handleCopyQuestionText}
-                            disabled={!questionText}
-                            className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                          >
-                            コピー
-                          </button>
-                          {copyToast && <span className="text-xs text-green-600">コピーしました</span>}
-                        </div>
-                      </div>
                       <div>
                         <p className="mb-2 text-sm font-medium text-gray-700">Googleフォーム</p>
                         {formCreateError && (
@@ -808,28 +746,20 @@ export default function RecordDetailPage() {
                           </div>
                         ) : (
                           <div className="rounded border border-gray-200 bg-gray-50 p-3">
-                            <p className="mb-3 text-sm text-gray-600">
-                              質問文を確認してからGoogleフォームを作成できます。
-                            </p>
                             <button
                               type="button"
                               onClick={handleCreateForm}
-                              disabled={!questionText.trim() || formCreating}
+                              disabled={formCreating}
                               className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
                             >
                               {formCreating ? "作成中..." : "Googleフォームを作成"}
                             </button>
-                            {!questionText.trim() && (
-                              <p className="mt-2 text-xs text-amber-600">
-                                質問文が生成されていないため、フォームを作成できません。
-                              </p>
-                            )}
                           </div>
                         )}
                       </div>
                     </div>
                   ) : (
-                    <p className="text-sm text-gray-500">「アップロード」でファイルを添付し、実績ヒアリングの職種カテゴリを選択して「出力開始」を押すと、Excel・質問文がここに表示されます。質問文を確認した後、「Googleフォームを作成」ボタンでフォームを作成できます。</p>
+                    <p className="text-sm text-gray-500">「アップロード」でファイルを添付し、実績ヒアリングの職種カテゴリを選択して「出力開始」を押すと、ExcelとGoogleフォームが作成されます。</p>
                   )}
                 </>
               )}
