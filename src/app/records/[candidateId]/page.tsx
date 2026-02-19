@@ -8,7 +8,7 @@ import { fetchEmployees, type Employee } from "@/lib/portalApi";
 import type { CommonAnalysisJson } from "@/types/commonAnalysis";
 import type { GoogleFormDefinition } from "@/types/googleForm";
 
-type PipelineStep = "idle" | "analyzing" | "questions" | "excel" | "question_and_form" | "done" | "error";
+type PipelineStep = "idle" | "analyzing" | "questions" | "excel" | "question_text" | "done" | "error";
 
 interface StoredRecord {
   candidateId: string;
@@ -52,6 +52,7 @@ export default function RecordDetailPage() {
   const [formResponseUrl, setFormResponseUrl] = useState<string | null>(null);
   const [formEditUrl, setFormEditUrl] = useState<string | null>(null);
   const [formUrlCopyToast, setFormUrlCopyToast] = useState(false);
+  const [formCreating, setFormCreating] = useState(false);
   type LeftMenuKey = "detail" | "upload" | "output";
   const [activeMenu, setActiveMenu] = useState<LeftMenuKey>("upload");
 
@@ -222,7 +223,7 @@ export default function RecordDetailPage() {
         // ignore
       }
 
-      setStep("question_and_form");
+      setStep("question_text");
       let generatedQuestionText = "";
       try {
         const qtFormData = new FormData();
@@ -256,49 +257,6 @@ export default function RecordDetailPage() {
         setQuestionGenError(e instanceof Error ? e.message : "質問文の生成に失敗しました");
       }
 
-      if (generatedQuestionText) {
-        try {
-          const formRes = await fetch("/api/intake/create-google-form", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              candidateId: record.candidateId,
-              candidateName: record.candidateName ?? name,
-              questionText: generatedQuestionText.trim(),
-            }),
-          });
-          const formDataRes = (await formRes.json()) as {
-            responseUrl?: string;
-            editUrl?: string;
-            formId?: string;
-            error?: string;
-            shareWarning?: string;
-          };
-          if (!formRes.ok) {
-            throw new Error(formDataRes.error || "フォームの作成に失敗しました");
-          }
-          if (formDataRes.responseUrl) {
-            setFormResponseUrl(formDataRes.responseUrl);
-            setFormEditUrl(formDataRes.editUrl ?? null);
-          }
-          if (formDataRes.shareWarning) {
-            setFormCreateWarning(formDataRes.shareWarning);
-          }
-          setRecord((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  formUrl: formDataRes.responseUrl ?? prev.formUrl,
-                  formEditUrl: formDataRes.editUrl ?? prev.formEditUrl,
-                  formId: formDataRes.formId ?? prev.formId,
-                }
-              : prev
-          );
-        } catch (e) {
-          setFormCreateError(e instanceof Error ? e.message : "フォームの作成に失敗しました");
-        }
-      }
-
       setStep("done");
     } catch (e) {
       setError(e instanceof Error ? e.message : "不明なエラー");
@@ -328,6 +286,55 @@ export default function RecordDetailPage() {
       () => {}
     );
   }, []);
+
+  const handleCreateForm = useCallback(async () => {
+    if (!record?.candidateId || !questionText.trim()) return;
+    setFormCreating(true);
+    setFormCreateError(null);
+    setFormCreateWarning(null);
+    try {
+      const formRes = await fetch("/api/intake/create-google-form", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          candidateId: record.candidateId,
+          candidateName: record.candidateName ?? name,
+          questionText: questionText.trim(),
+        }),
+      });
+      const formDataRes = (await formRes.json()) as {
+        responseUrl?: string;
+        editUrl?: string;
+        formId?: string;
+        error?: string;
+        shareWarning?: string;
+      };
+      if (!formRes.ok) {
+        throw new Error(formDataRes.error || "フォームの作成に失敗しました");
+      }
+      if (formDataRes.responseUrl) {
+        setFormResponseUrl(formDataRes.responseUrl);
+        setFormEditUrl(formDataRes.editUrl ?? null);
+      }
+      if (formDataRes.shareWarning) {
+        setFormCreateWarning(formDataRes.shareWarning);
+      }
+      setRecord((prev) =>
+        prev
+          ? {
+              ...prev,
+              formUrl: formDataRes.responseUrl ?? prev.formUrl,
+              formEditUrl: formDataRes.editUrl ?? prev.formEditUrl,
+              formId: formDataRes.formId ?? prev.formId,
+            }
+          : prev
+      );
+    } catch (e) {
+      setFormCreateError(e instanceof Error ? e.message : "フォームの作成に失敗しました");
+    } finally {
+      setFormCreating(false);
+    }
+  }, [record, questionText, name]);
 
   const handleReoutput = useCallback(async () => {
     if (!candidateId) return;
@@ -361,7 +368,7 @@ export default function RecordDetailPage() {
     step === "analyzing" ||
     step === "questions" ||
     step === "excel" ||
-    step === "question_and_form";
+    step === "question_text";
   const hasFiles = !!(files.pdf || files.interviewLog || files.flagList);
   const canStartOutput =
     hasFiles &&
@@ -393,8 +400,8 @@ export default function RecordDetailPage() {
         ? "質問生成中…"
         : step === "excel"
           ? "Excel生成中…"
-          : step === "question_and_form"
-            ? "質問文・フォーム作成中…"
+          : step === "question_text"
+            ? "質問文生成中…"
             : null;
 
   const menuItems: { key: LeftMenuKey; label: string; sub: string }[] = [
@@ -621,7 +628,7 @@ export default function RecordDetailPage() {
                     </div>
                   </div>
                   <div>
-                    <p className="mb-2 text-sm font-medium text-gray-700">GoogleフォームURL</p>
+                    <p className="mb-2 text-sm font-medium text-gray-700">Googleフォーム</p>
                     {formCreateError && (
                       <div className="mb-2 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-800" role="alert">
                         {formCreateError}
@@ -669,7 +676,24 @@ export default function RecordDetailPage() {
                         )}
                       </div>
                     ) : (
-                      <p className="text-sm text-gray-500">フォームが未作成の場合は質問文生成に失敗している可能性があります。</p>
+                      <div className="rounded border border-gray-200 bg-gray-50 p-3">
+                        <p className="mb-3 text-sm text-gray-600">
+                          質問文を確認してからGoogleフォームを作成できます。
+                        </p>
+                        <button
+                          type="button"
+                          onClick={handleCreateForm}
+                          disabled={!questionText.trim() || formCreating}
+                          className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                        >
+                          {formCreating ? "作成中..." : "Googleフォームを作成"}
+                        </button>
+                        {!questionText.trim() && (
+                          <p className="mt-2 text-xs text-amber-600">
+                            質問文が生成されていないため、フォームを作成できません。
+                          </p>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -705,49 +729,78 @@ export default function RecordDetailPage() {
                           {copyToast && <span className="text-xs text-green-600">コピーしました</span>}
                         </div>
                       </div>
-                      {record?.formUrl && (
-                        <div>
-                          <p className="mb-2 text-sm font-medium text-gray-700">保存されたGoogleフォームURL</p>
+                      <div>
+                        <p className="mb-2 text-sm font-medium text-gray-700">Googleフォーム</p>
+                        {formCreateError && (
+                          <div className="mb-2 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-800" role="alert">
+                            {formCreateError}
+                          </div>
+                        )}
+                        {formCreateWarning && (
+                          <div className="mb-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800" role="status">
+                            {formCreateWarning}
+                          </div>
+                        )}
+                        {(formResponseUrl || record?.formUrl) ? (
                           <div className="rounded border border-gray-200 bg-gray-50 p-3">
                             <p className="mb-2 break-all text-sm text-blue-700">
                               <a
-                                href={record.formUrl}
+                                href={formResponseUrl || record?.formUrl || ""}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="underline"
                               >
-                                {record.formUrl}
+                                {formResponseUrl || record?.formUrl}
                               </a>
                             </p>
                             <div className="flex flex-wrap items-center gap-2">
                               <button
                                 type="button"
-                                onClick={() => handleCopyFormUrl(record.formUrl || "")}
+                                onClick={() => handleCopyFormUrl(formResponseUrl || record?.formUrl || "")}
                                 className="rounded border border-gray-300 bg-white px-2 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50"
                               >
                                 URLをコピー
                               </button>
                               {formUrlCopyToast && <span className="text-xs text-green-600">コピーしました</span>}
                             </div>
-                            {record.formEditUrl && (
+                            {(formEditUrl || record?.formEditUrl) && (
                               <p className="mt-2 text-xs text-gray-500">
                                 編集用:{" "}
                                 <a
-                                  href={record.formEditUrl}
+                                  href={formEditUrl || record?.formEditUrl || ""}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="underline"
                                 >
-                                  {record.formEditUrl}
+                                  {formEditUrl || record?.formEditUrl}
                                 </a>
                               </p>
                             )}
                           </div>
-                        </div>
-                      )}
+                        ) : (
+                          <div className="rounded border border-gray-200 bg-gray-50 p-3">
+                            <p className="mb-3 text-sm text-gray-600">
+                              質問文を確認してからGoogleフォームを作成できます。
+                            </p>
+                            <button
+                              type="button"
+                              onClick={handleCreateForm}
+                              disabled={!questionText.trim() || formCreating}
+                              className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                            >
+                              {formCreating ? "作成中..." : "Googleフォームを作成"}
+                            </button>
+                            {!questionText.trim() && (
+                              <p className="mt-2 text-xs text-amber-600">
+                                質問文が生成されていないため、フォームを作成できません。
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ) : (
-                    <p className="text-sm text-gray-500">「アップロード」でファイルを添付し、実績ヒアリングの職種カテゴリを選択して「出力開始」を押すと、Excel・質問文・GoogleフォームURLがここに表示されます。</p>
+                    <p className="text-sm text-gray-500">「アップロード」でファイルを添付し、実績ヒアリングの職種カテゴリを選択して「出力開始」を押すと、Excel・質問文がここに表示されます。質問文を確認した後、「Googleフォームを作成」ボタンでフォームを作成できます。</p>
                   )}
                 </>
               )}
