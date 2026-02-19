@@ -155,7 +155,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (e) {
     console.error("[create-google-form] Fatal error:", e);
-    await updateRecordStatus(candidateId, { formStatus: "error", formError: e instanceof Error ? e.message : "Unknown error" }).catch(() => {});
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Internal server error" },
       { status: 500 }
