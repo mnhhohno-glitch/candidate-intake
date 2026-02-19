@@ -20,6 +20,8 @@ interface StoredRecord {
   formEditUrl?: string;
   formId?: string;
   questionText?: string;
+  hasAnalysisResult?: boolean;
+  analysisResultAt?: string;
 }
 
 export default function RecordDetailPage() {
@@ -53,6 +55,7 @@ export default function RecordDetailPage() {
   const [formEditUrl, setFormEditUrl] = useState<string | null>(null);
   const [formUrlCopyToast, setFormUrlCopyToast] = useState(false);
   const [formCreating, setFormCreating] = useState(false);
+  const [useCachedAnalysis, setUseCachedAnalysis] = useState(false);
   type LeftMenuKey = "detail" | "upload" | "output";
   const [activeMenu, setActiveMenu] = useState<LeftMenuKey>("upload");
 
@@ -131,7 +134,8 @@ export default function RecordDetailPage() {
 
   const runPipeline = useCallback(async () => {
     if (!record?.candidateId) return;
-    if (!files.pdf && !files.interviewLog && !files.flagList) {
+    const useCache = useCachedAnalysis && record.hasAnalysisResult;
+    if (!useCache && !files.pdf && !files.interviewLog && !files.flagList) {
       setError("PDF・面談ログ・フラグリストのいずれか1つ以上をアップロードしてください。");
       return;
     }
@@ -139,7 +143,7 @@ export default function RecordDetailPage() {
       setError("実績ヒアリングの職種カテゴリを選択してください。");
       return;
     }
-    if (!files.pdf) {
+    if (!useCache && !files.pdf) {
       setError("質問文・フォーム生成のためPDFのアップロードが必須です。");
       return;
     }
@@ -161,6 +165,9 @@ export default function RecordDetailPage() {
     try {
       const formData = new FormData();
       formData.append("candidateId", record.candidateId);
+      if (useCache) {
+        formData.append("useCachedAnalysis", "true");
+      }
       if (files.pdf) formData.append("pdf", files.pdf);
       if (files.interviewLog) formData.append("interviewLog", files.interviewLog);
       if (files.flagList) formData.append("flagList", files.flagList);
@@ -262,7 +269,7 @@ export default function RecordDetailPage() {
       setError(e instanceof Error ? e.message : "不明なエラー");
       setStep("error");
     }
-  }, [record, files, excelBlobUrl, achievementCategory, name]);
+  }, [record, files, excelBlobUrl, achievementCategory, name, useCachedAnalysis]);
 
   const handleCopyQuestionText = useCallback(() => {
     if (!questionText) return;
@@ -370,8 +377,9 @@ export default function RecordDetailPage() {
     step === "excel" ||
     step === "question_text";
   const hasFiles = !!(files.pdf || files.interviewLog || files.flagList);
+  const canUseCachedAnalysis = useCachedAnalysis && record?.hasAnalysisResult;
   const canStartOutput =
-    hasFiles &&
+    (hasFiles || canUseCachedAnalysis) &&
     !!achievementCategory &&
     ACHIEVEMENT_OPTIONS.includes(achievementCategory as (typeof ACHIEVEMENT_OPTIONS)[number]);
 
@@ -547,6 +555,27 @@ export default function RecordDetailPage() {
                     ))}
                   </select>
                 </div>
+                {record.hasAnalysisResult && (
+                  <div className="mt-4">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={useCachedAnalysis}
+                        onChange={(e) => setUseCachedAnalysis(e.target.checked)}
+                        disabled={running}
+                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-gray-700">
+                        保存済みの解析結果を使用（Gemini APIをスキップ）
+                      </span>
+                    </label>
+                    {record.analysisResultAt && (
+                      <p className="ml-6 mt-1 text-xs text-gray-500">
+                        保存日時: {new Date(record.analysisResultAt).toLocaleString("ja-JP")}
+                      </p>
+                    )}
+                  </div>
+                )}
                 <div className="mt-4 flex flex-wrap gap-3">
                   {record.lastOutputAt && (
                     <button

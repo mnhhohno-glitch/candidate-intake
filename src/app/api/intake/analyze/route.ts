@@ -11,6 +11,7 @@ import {
   buildCommonAnalysisResponseSchema,
   adaptGeminiResponseToCommonAnalysis,
 } from "@/services/flagListSchema";
+import { saveAnalysisResult, getAnalysisResult } from "@/lib/recordsStore";
 import type { CommonAnalysisJson } from "@/types/commonAnalysis";
 
 const MAX_RETRIES = 2;
@@ -163,6 +164,7 @@ export async function POST(request: NextRequest) {
     const interviewFile = formData.get("interviewLog") as File | null;
     const flagListFile = formData.get("flagList") as File | null;
     const registeredCandidateId = (formData.get("candidateId") as string | null)?.trim() ?? null;
+    const useCachedAnalysis = formData.get("useCachedAnalysis") === "true";
     const validRegisteredId = registeredCandidateId && /^5\d{6}$/.test(registeredCandidateId);
 
     if (!validRegisteredId) {
@@ -170,6 +172,18 @@ export async function POST(request: NextRequest) {
         { error: "求職者番号（5から始まる7桁の数字）が登録されていません。先に新規レコード追加で登録してください。" },
         { status: 400 }
       );
+    }
+
+    if (useCachedAnalysis) {
+      const cached = await getAnalysisResult(registeredCandidateId);
+      if (cached && typeof cached === "object") {
+        console.log(`[intake/analyze] Using cached analysis for ${registeredCandidateId}`);
+        return NextResponse.json({
+          ...cached as object,
+          _debug: { fromCache: true },
+        });
+      }
+      console.log(`[intake/analyze] No cached analysis found for ${registeredCandidateId}, proceeding with new analysis`);
     }
 
     if (pdfFile?.size && !isValidWebResumeFilename(pdfFile.name)) {
@@ -296,11 +310,22 @@ export async function POST(request: NextRequest) {
             console.log("[intake/analyze] thought_process keys:", Object.keys(thoughtProcess).join(", "));
           }
           
-          return NextResponse.json({
+          const responsePayload = {
             extracted_facts: normalized.extracted_facts,
             filemaker_mapping: normalized.filemaker_mapping,
             missing_items: normalized.missing_items,
             thought_process: thoughtProcess,
+          };
+
+          try {
+            await saveAnalysisResult(registeredCandidateId, responsePayload);
+            console.log(`[intake/analyze] Analysis result saved for ${registeredCandidateId}`);
+          } catch (saveErr) {
+            console.warn("[intake/analyze] Failed to save analysis result:", saveErr);
+          }
+          
+          return NextResponse.json({
+            ...responsePayload,
             _debug: {
               pdfChars: pdfText.length,
               interviewChars: interviewLog.length,

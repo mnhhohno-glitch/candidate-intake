@@ -43,6 +43,10 @@ export interface StoredRecord {
   formId?: string;
   /** 生成された質問文テキスト */
   questionText?: string;
+  /** 解析結果が保存されているか */
+  hasAnalysisResult?: boolean;
+  /** 解析結果の保存日時 */
+  analysisResultAt?: string;
 }
 
 async function ensureDataDir() {
@@ -205,10 +209,81 @@ export async function deleteRecords(candidateIds: string[]): Promise<void> {
   await ensureDataDir();
   for (const id of ids) {
     const excelPath = path.join(CACHE_DIR, `${id}_last.xlsx`);
+    const analysisPath = path.join(CACHE_DIR, `${id}_analysis.json`);
     try {
       await fs.unlink(excelPath);
     } catch {
       // ignore
     }
+    try {
+      await fs.unlink(analysisPath);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+/**
+ * 解析結果を保存する。
+ * 解析結果は別ファイル（{candidateId}_analysis.json）に保存し、
+ * レコードには hasAnalysisResult フラグと日時のみ記録。
+ */
+export async function saveAnalysisResult(
+  candidateId: string,
+  analysisResult: unknown
+): Promise<StoredRecord | null> {
+  await ensureDataDir();
+  const records = await readRecords();
+  const idx = records.findIndex((r) => r.candidateId === candidateId);
+  if (idx < 0) return null;
+
+  const now = new Date().toISOString();
+  records[idx] = {
+    ...records[idx],
+    hasAnalysisResult: true,
+    analysisResultAt: now,
+  };
+  await writeRecords(records);
+
+  const analysisPath = path.join(CACHE_DIR, `${candidateId}_analysis.json`);
+  await fs.writeFile(analysisPath, JSON.stringify(analysisResult, null, 2), "utf-8");
+
+  return records[idx];
+}
+
+/**
+ * 保存済みの解析結果を取得する。
+ * 存在しない場合は null を返す。
+ */
+export async function getAnalysisResult(candidateId: string): Promise<unknown | null> {
+  const analysisPath = path.join(CACHE_DIR, `${candidateId}_analysis.json`);
+  try {
+    const raw = await fs.readFile(analysisPath, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 解析結果を削除する。
+ */
+export async function clearAnalysisResult(candidateId: string): Promise<void> {
+  const records = await readRecords();
+  const idx = records.findIndex((r) => r.candidateId === candidateId);
+  if (idx >= 0) {
+    records[idx] = {
+      ...records[idx],
+      hasAnalysisResult: false,
+      analysisResultAt: undefined,
+    };
+    await writeRecords(records);
+  }
+
+  const analysisPath = path.join(CACHE_DIR, `${candidateId}_analysis.json`);
+  try {
+    await fs.unlink(analysisPath);
+  } catch {
+    // ignore
   }
 }
