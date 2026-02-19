@@ -10,6 +10,8 @@ import type { GoogleFormDefinition } from "@/types/googleForm";
 
 type PipelineStep = "idle" | "analyzing" | "questions" | "excel" | "question_text" | "done" | "error";
 
+type StatusType = "not_started" | "in_progress" | "done" | "error";
+
 interface StoredRecord {
   candidateId: string;
   candidateName: string;
@@ -22,6 +24,10 @@ interface StoredRecord {
   questionText?: string;
   hasAnalysisResult?: boolean;
   analysisResultAt?: string;
+  analysisStatus?: StatusType;
+  analysisError?: string;
+  formStatus?: StatusType;
+  formError?: string;
 }
 
 export default function RecordDetailPage() {
@@ -688,7 +694,7 @@ export default function RecordDetailPage() {
               )}
               {step === "idle" && !running && (
                 <>
-                  {(record?.lastOutputAt || record?.formUrl) ? (
+                  {(record?.lastOutputAt || record?.formUrl || record?.analysisStatus) ? (
                     <div className="flex flex-col gap-6 overflow-auto">
                       {record?.lastOutputAt && (
                         <div className="rounded border border-green-200 bg-green-50 p-3 text-sm text-green-800">
@@ -696,6 +702,22 @@ export default function RecordDetailPage() {
                           <p className="mt-1 text-xs">最終出力: {new Date(record.lastOutputAt).toLocaleString("ja-JP")}</p>
                         </div>
                       )}
+                      <div className="flex flex-wrap gap-2">
+                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                          record?.analysisStatus === "done" ? "bg-green-100 text-green-800" :
+                          record?.analysisStatus === "error" ? "bg-red-100 text-red-800" :
+                          "bg-gray-100 text-gray-800"
+                        }`}>
+                          解析: {record?.analysisStatus === "done" ? "完了" : record?.analysisStatus === "error" ? "エラー" : "未実行"}
+                        </span>
+                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                          record?.formStatus === "done" ? "bg-green-100 text-green-800" :
+                          record?.formStatus === "error" ? "bg-red-100 text-red-800" :
+                          "bg-gray-100 text-gray-800"
+                        }`}>
+                          フォーム: {record?.formStatus === "done" ? "作成済" : record?.formStatus === "error" ? "エラー" : "未作成"}
+                        </span>
+                      </div>
                       <div>
                         <p className="mb-2 text-sm font-medium text-gray-700">Googleフォーム</p>
                         {formCreateError && (

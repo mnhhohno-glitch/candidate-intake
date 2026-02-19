@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getRecord, updateRecordFormUrls } from "@/lib/recordsStore";
+import { getRecord, updateRecordFormUrls, updateRecordStatus } from "@/lib/recordsStore";
 
 const GAS_WEB_APP_URL = process.env.GAS_WEB_APP_URL ?? "";
 const GAS_INVOKE_TOKEN = process.env.GAS_INVOKE_TOKEN ?? "";
@@ -142,6 +142,8 @@ export async function POST(request: NextRequest) {
       formId: typeof data.formId === "string" ? data.formId : undefined,
     });
 
+    await updateRecordStatus(candidateId, { formStatus: "done", formError: undefined });
+
     return NextResponse.json({
       formId: data.formId ?? null,
       responseUrl: data.responseUrl,
@@ -153,6 +155,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (e) {
     console.error("[create-google-form] Fatal error:", e);
+    await updateRecordStatus(candidateId, { formStatus: "error", formError: e instanceof Error ? e.message : "Unknown error" }).catch(() => {});
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Internal server error" },
       { status: 500 }

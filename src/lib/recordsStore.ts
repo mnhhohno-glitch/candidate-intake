@@ -28,6 +28,8 @@ export interface FormUrlInfo {
   formId?: string;
 }
 
+export type StatusType = "not_started" | "in_progress" | "done" | "error";
+
 export interface StoredRecord {
   candidateId: string;
   candidateName: string;
@@ -47,6 +49,14 @@ export interface StoredRecord {
   hasAnalysisResult?: boolean;
   /** 解析結果の保存日時 */
   analysisResultAt?: string;
+  /** 解析ステータス */
+  analysisStatus?: StatusType;
+  /** 解析エラーメッセージ */
+  analysisError?: string;
+  /** フォーム作成ステータス */
+  formStatus?: StatusType;
+  /** フォーム作成エラーメッセージ */
+  formError?: string;
 }
 
 async function ensureDataDir() {
@@ -242,12 +252,38 @@ export async function saveAnalysisResult(
     ...records[idx],
     hasAnalysisResult: true,
     analysisResultAt: now,
+    analysisStatus: "done",
+    analysisError: undefined,
   };
   await writeRecords(records);
 
   const analysisPath = path.join(CACHE_DIR, `${candidateId}_analysis.json`);
   await fs.writeFile(analysisPath, JSON.stringify(analysisResult, null, 2), "utf-8");
 
+  return records[idx];
+}
+
+/**
+ * ステータスを更新する汎用関数
+ */
+export async function updateRecordStatus(
+  candidateId: string,
+  updates: {
+    analysisStatus?: StatusType;
+    analysisError?: string;
+    formStatus?: StatusType;
+    formError?: string;
+  }
+): Promise<StoredRecord | null> {
+  const records = await readRecords();
+  const idx = records.findIndex((r) => r.candidateId === candidateId);
+  if (idx < 0) return null;
+
+  records[idx] = {
+    ...records[idx],
+    ...updates,
+  };
+  await writeRecords(records);
   return records[idx];
 }
 

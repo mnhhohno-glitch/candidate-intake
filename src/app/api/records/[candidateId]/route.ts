@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getRecord, deleteRecord, addOrUpdateRecord, updateRecordQuestionText } from "@/lib/recordsStore";
+import { getRecord, deleteRecord, addOrUpdateRecord, updateRecordQuestionText, updateRecordStatus } from "@/lib/recordsStore";
 
 export async function GET(
   _request: NextRequest,
@@ -34,6 +34,10 @@ export async function PATCH(
     const candidateName = body.candidateName != null ? String(body.candidateName) : undefined;
     const careerAdvisor = body.careerAdvisor != null ? String(body.careerAdvisor) : undefined;
     const questionText = body.questionText != null ? String(body.questionText) : undefined;
+    const analysisStatus = body.analysisStatus as string | undefined;
+    const analysisError = body.analysisError as string | undefined;
+    const formStatus = body.formStatus as string | undefined;
+    const formError = body.formError as string | undefined;
     const existing = await getRecord(candidateId);
     if (!existing) {
       return NextResponse.json({ error: "Record not found" }, { status: 404 });
@@ -45,6 +49,14 @@ export async function PATCH(
     });
     if (questionText !== undefined) {
       await updateRecordQuestionText(candidateId, questionText);
+    }
+    if (analysisStatus || analysisError || formStatus || formError) {
+      await updateRecordStatus(candidateId, {
+        analysisStatus: analysisStatus as "not_started" | "in_progress" | "done" | "error" | undefined,
+        analysisError,
+        formStatus: formStatus as "not_started" | "in_progress" | "done" | "error" | undefined,
+        formError,
+      });
     }
     const record = await getRecord(candidateId);
     return NextResponse.json(record!);
