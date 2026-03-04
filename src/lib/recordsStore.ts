@@ -57,6 +57,8 @@ export interface StoredRecord {
   formStatus?: StatusType;
   /** フォーム作成エラーメッセージ */
   formError?: string;
+  /** 実績ヒアリングの職種カテゴリ */
+  achievementCategory?: string;
 }
 
 async function ensureDataDir() {
@@ -194,6 +196,21 @@ export async function updateRecordQuestionText(
   records[idx] = {
     ...records[idx],
     questionText,
+  };
+  await writeRecords(records);
+  return records[idx];
+}
+
+export async function updateRecordAchievementCategory(
+  candidateId: string,
+  achievementCategory: string | undefined
+): Promise<StoredRecord | null> {
+  const records = await readRecords();
+  const idx = records.findIndex((r) => r.candidateId === candidateId);
+  if (idx < 0) return null;
+  records[idx] = {
+    ...records[idx],
+    achievementCategory,
   };
   await writeRecords(records);
   return records[idx];

@@ -28,6 +28,7 @@ interface StoredRecord {
   analysisError?: string;
   formStatus?: StatusType;
   formError?: string;
+  achievementCategory?: string;
 }
 
 export default function RecordDetailPage() {
@@ -61,6 +62,7 @@ export default function RecordDetailPage() {
   const [formUrlCopyToast, setFormUrlCopyToast] = useState(false);
   const [formCreating, setFormCreating] = useState(false);
   const [useCachedAnalysis, setUseCachedAnalysis] = useState(false);
+  const [retryPdfFile, setRetryPdfFile] = useState<File | null>(null);
   type LeftMenuKey = "detail" | "upload" | "output";
   const [activeMenu, setActiveMenu] = useState<LeftMenuKey>("upload");
 
@@ -88,6 +90,9 @@ export default function RecordDetailPage() {
           setAdvisor(data.careerAdvisor ?? "");
           if (data.questionText) {
             setQuestionText(data.questionText);
+          }
+          if (data.achievementCategory) {
+            setAchievementCategory(data.achievementCategory);
           }
         }
       } catch {
@@ -235,6 +240,12 @@ export default function RecordDetailPage() {
         // ignore
       }
 
+      await fetch(`/api/records/${encodeURIComponent(record.candidateId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ achievementCategory }),
+      }).catch(() => {});
+
       setStep("question_text");
       let generatedQuestionText = "";
       try {
@@ -249,7 +260,11 @@ export default function RecordDetailPage() {
         });
         const qtData = await qtRes.json().catch(() => ({}));
         if (!qtRes.ok) {
-          throw new Error((qtData as { error?: string }).error || "質問文の生成に失敗しました");
+          const baseMsg = (qtData as { error?: string }).error || "質問文の生成に失敗しました";
+          const hint = qtRes.status === 503
+            ? " サービスが一時的に利用できません。しばらくしてから「質問文・フォームを再試行」を押してください。"
+            : "";
+          throw new Error(baseMsg + hint);
         }
         const text = (qtData as { candidate_question_text_only?: string }).candidate_question_text_only;
         generatedQuestionText = typeof text === "string" ? text : "";
@@ -267,6 +282,14 @@ export default function RecordDetailPage() {
         }
       } catch (e) {
         setQuestionGenError(e instanceof Error ? e.message : "質問文の生成に失敗しました");
+        await fetch(`/api/records/${encodeURIComponent(record.candidateId)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            formStatus: "error",
+            formError: "質問文生成に失敗しました（タイムアウトの可能性）",
+          }),
+        }).catch(() => {});
       }
 
       setStep("done");
@@ -338,6 +361,95 @@ export default function RecordDetailPage() {
       setFormCreating(false);
     }
   }, [record, questionText, name]);
+
+  const handleRetryQuestionAndForm = useCallback(
+    async (pdfFile: File, interviewLog?: File | null) => {
+      if (!record?.candidateId || !achievementCategory || !ACHIEVEMENT_OPTIONS.includes(achievementCategory as (typeof ACHIEVEMENT_OPTIONS)[number])) {
+        setFormCreateError("再試行には実績ヒアリングの職種カテゴリ選択が必要です。");
+        return;
+      }
+      setQuestionGenError(null);
+      setFormCreateError(null);
+      setFormCreating(true);
+      try {
+        const qtFormData = new FormData();
+        qtFormData.append("achievement_category", achievementCategory);
+        if (record.candidateName) qtFormData.append("candidate_name", record.candidateName);
+        qtFormData.append("pdf", pdfFile);
+        if (interviewLog) qtFormData.append("interviewLog", interviewLog);
+        const qtRes = await fetch("/api/intake/hearing-question-text", {
+          method: "POST",
+          body: qtFormData,
+        });
+        const qtData = await qtRes.json().catch(() => ({}));
+        if (!qtRes.ok) {
+          const baseMsg = (qtData as { error?: string }).error || "質問文の生成に失敗しました";
+          const hint = qtRes.status === 503
+            ? " サービスが一時的に利用できません。しばらく経ってから再度お試しください。"
+            : "";
+          throw new Error(baseMsg + hint);
+        }
+        const text = (qtData as { candidate_question_text_only?: string }).candidate_question_text_only;
+        const generatedQuestionText = typeof text === "string" ? text : "";
+        setQuestionText(generatedQuestionText);
+        if (!generatedQuestionText) {
+          setFormCreating(false);
+          return;
+        }
+        const formRes = await fetch("/api/intake/create-google-form", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            candidateId: record.candidateId,
+            candidateName: record.candidateName ?? name,
+            questionText: generatedQuestionText.trim(),
+          }),
+        });
+        const formDataRes = (await formRes.json()) as {
+          responseUrl?: string;
+          editUrl?: string;
+          formId?: string;
+          error?: string;
+          shareWarning?: string;
+        };
+        if (!formRes.ok) {
+          throw new Error(formDataRes.error || "フォームの作成に失敗しました");
+        }
+        if (formDataRes.responseUrl) {
+          setFormResponseUrl(formDataRes.responseUrl);
+          setFormEditUrl(formDataRes.editUrl ?? null);
+        }
+        if (formDataRes.shareWarning) {
+          setFormCreateWarning(formDataRes.shareWarning);
+        }
+        setRecord((prev) =>
+          prev
+            ? {
+                ...prev,
+                formUrl: formDataRes.responseUrl ?? prev.formUrl,
+                formEditUrl: formDataRes.editUrl ?? prev.formEditUrl,
+                formId: formDataRes.formId ?? prev.formId,
+              }
+            : prev
+        );
+        setQuestionGenError(null);
+      } catch (e) {
+        setQuestionGenError(e instanceof Error ? e.message : "質問文の生成に失敗しました");
+      } finally {
+        setFormCreating(false);
+      }
+    },
+    [record, achievementCategory, name]
+  );
+
+  const handleRetryQuestionTextAndForm = useCallback(() => {
+    const pdf = files.pdf ?? retryPdfFile;
+    if (!record?.candidateId || !pdf || !achievementCategory || !ACHIEVEMENT_OPTIONS.includes(achievementCategory as (typeof ACHIEVEMENT_OPTIONS)[number])) {
+      setFormCreateError("再試行にはPDFの選択と実績ヒアリングの職種カテゴリ選択が必要です。");
+      return;
+    }
+    handleRetryQuestionAndForm(pdf, files.interviewLog);
+  }, [record, files.pdf, files.interviewLog, retryPdfFile, achievementCategory, handleRetryQuestionAndForm]);
 
   const handleReoutput = useCallback(async () => {
     if (!candidateId) return;
@@ -631,6 +743,11 @@ export default function RecordDetailPage() {
                   )}
                   <div>
                     <p className="mb-2 text-sm font-medium text-gray-700">Googleフォーム</p>
+                    {questionGenError && (
+                      <div className="mb-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800" role="alert">
+                        {questionGenError}
+                      </div>
+                    )}
                     {formCreateError && (
                       <div className="mb-2 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-800" role="alert">
                         {formCreateError}
@@ -678,16 +795,55 @@ export default function RecordDetailPage() {
                         )}
                       </div>
                     ) : (
-                      <div className="rounded border border-gray-200 bg-gray-50 p-3">
-                        <button
-                          type="button"
-                          onClick={handleCreateForm}
-                          disabled={formCreating}
-                          className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
-                        >
-                          {formCreating ? "作成中..." : "Googleフォームを作成"}
-                        </button>
-                      </div>
+                      <div className="rounded border border-gray-200 bg-gray-50 p-3 space-y-3">
+                        {questionGenError && (
+                          <p className="text-sm text-gray-700">
+                            {achievementCategory
+                              ? "503 などで質問文の生成に失敗した場合は、しばらく経ってから下のPDFを選択し「質問文・フォームを再試行」を押してください。"
+                              : "質問文を生成するには「アップロード」でファイルを再度添付し、実績ヒアリングの職種カテゴリを選択して「出力開始」を実行してください。"}
+                          </p>
+                        )}
+                        {!questionText && achievementCategory && (
+                          <div className="space-y-2">
+                            <p className="text-sm text-gray-700">
+                              質問文が生成されていません。PDFを選択して再試行してください。
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <label className="inline-flex cursor-pointer items-center gap-2 rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                                <input
+                                  type="file"
+                                  accept=".pdf"
+                                  className="sr-only"
+                                  onChange={(e) => {
+                                    const f = e.target.files?.[0];
+                                    setRetryPdfFile(f ?? null);
+                                  }}
+                                />
+                                PDFファイル選択
+                              </label>
+                              {retryPdfFile && <span className="text-xs text-gray-600">{retryPdfFile.name}</span>}
+                              <button
+                                type="button"
+                                onClick={handleRetryQuestionTextAndForm}
+                                disabled={formCreating || !(files.pdf || retryPdfFile)}
+                                className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                              >
+                                {formCreating ? "再試行中..." : "質問文・フォームを再試行"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {questionText && (
+                            <button
+                              type="button"
+                              onClick={handleCreateForm}
+                              disabled={formCreating}
+                              className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                            >
+                              {formCreating ? "作成中..." : "Googleフォームを作成"}
+                            </button>
+                          )}
+                        </div>
                     )}
                   </div>
                 </div>
@@ -765,6 +921,35 @@ export default function RecordDetailPage() {
                                 </a>
                               </p>
                             )}
+                          </div>
+                        ) : !questionText && achievementCategory ? (
+                          <div className="rounded border border-gray-200 bg-gray-50 p-3 space-y-3">
+                            <p className="text-sm text-gray-700">
+                              質問文が生成されていません。PDFを選択して再試行してください。
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <label className="inline-flex cursor-pointer items-center gap-2 rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                                <input
+                                  type="file"
+                                  accept=".pdf"
+                                  className="sr-only"
+                                  onChange={(e) => {
+                                    const f = e.target.files?.[0];
+                                    setRetryPdfFile(f ?? null);
+                                  }}
+                                />
+                                PDFファイル選択
+                              </label>
+                              {retryPdfFile && <span className="text-xs text-gray-600">{retryPdfFile.name}</span>}
+                              <button
+                                type="button"
+                                onClick={() => retryPdfFile && handleRetryQuestionAndForm(retryPdfFile, undefined)}
+                                disabled={formCreating || !retryPdfFile}
+                                className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                              >
+                                {formCreating ? "再試行中..." : "質問文・フォームを再試行"}
+                              </button>
+                            </div>
                           </div>
                         ) : (
                           <div className="rounded border border-gray-200 bg-gray-50 p-3">
