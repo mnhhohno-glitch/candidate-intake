@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getRecord, deleteRecord, addOrUpdateRecord, updateRecordQuestionText, updateRecordStatus } from "@/lib/recordsStore";
+import { getRecord, deleteRecord, addOrUpdateRecord, updateRecordQuestionText, updateRecordStatus, updateRecordAchievementCategory } from "@/lib/recordsStore";
 
 export async function GET(
   _request: NextRequest,
@@ -38,6 +38,7 @@ export async function PATCH(
     const analysisError = body.analysisError as string | undefined;
     const formStatus = body.formStatus as string | undefined;
     const formError = body.formError as string | undefined;
+    const achievementCategory = body.achievementCategory != null ? String(body.achievementCategory) : undefined;
     const existing = await getRecord(candidateId);
     if (!existing) {
       return NextResponse.json({ error: "Record not found" }, { status: 404 });
@@ -49,6 +50,9 @@ export async function PATCH(
     });
     if (questionText !== undefined) {
       await updateRecordQuestionText(candidateId, questionText);
+    }
+    if (achievementCategory !== undefined) {
+      await updateRecordAchievementCategory(candidateId, achievementCategory);
     }
     if (analysisStatus || analysisError || formStatus || formError) {
       await updateRecordStatus(candidateId, {
