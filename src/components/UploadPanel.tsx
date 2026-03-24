@@ -5,14 +5,12 @@ import { useCallback, useRef, useState } from "react";
 export interface UploadFiles {
   pdf: File | null;
   interviewLog: File | null;
-  flagList: File | null;
 }
 
-const ACCEPT_ALL =
-  ".pdf,application/pdf,.txt,text/plain,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const ACCEPT_ALL = ".pdf,application/pdf,.txt,text/plain";
 
 function categorizeFiles(fileList: FileList | null): UploadFiles {
-  const result: UploadFiles = { pdf: null, interviewLog: null, flagList: null };
+  const result: UploadFiles = { pdf: null, interviewLog: null };
   if (!fileList || fileList.length === 0) return result;
   for (let i = 0; i < fileList.length; i++) {
     const file = fileList[i];
@@ -22,8 +20,6 @@ function categorizeFiles(fileList: FileList | null): UploadFiles {
       result.pdf = file;
     } else if (!result.interviewLog && (type === "text/plain" || name.endsWith(".txt"))) {
       result.interviewLog = file;
-    } else if (!result.flagList && (type.includes("sheet") || name.endsWith(".xlsx"))) {
-      result.flagList = file;
     }
   }
   return result;
@@ -114,7 +110,7 @@ export function UploadPanel({
           ここにファイルをドラッグ＆ドロップ、またはクリックして選択
         </p>
         <p className="text-xs text-gray-500">
-          履歴書PDF・面談ログ（.txt）・フラグリスト（.xlsx）をまとめて選べます。いずれか1つ以上必要です。
+          履歴書PDF・面談ログ（.txt）をまとめて選べます。いずれか1つ以上必要です。
         </p>
       </div>
       <div className="mt-3 space-y-1 text-sm text-gray-600">
@@ -125,10 +121,6 @@ export function UploadPanel({
         <p>
           <span className="font-medium">面談ログ .txt:</span>{" "}
           {files.interviewLog ? files.interviewLog.name : "未選択"}
-        </p>
-        <p>
-          <span className="font-medium">フラグリスト .xlsx:</span>{" "}
-          {files.flagList ? files.flagList.name : "未選択"}
         </p>
       </div>
     </section>

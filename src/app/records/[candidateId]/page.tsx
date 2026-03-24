@@ -42,7 +42,7 @@ export default function RecordDetailPage() {
   const [advisor, setAdvisor] = useState<string>("");
   const [saveMessage, setSaveMessage] = useState<"saved" | "error" | null>(null);
 
-  const [files, setFiles] = useState<UploadFiles>({ pdf: null, interviewLog: null, flagList: null });
+  const [files, setFiles] = useState<UploadFiles>({ pdf: null, interviewLog: null });
   const [step, setStep] = useState<PipelineStep>("idle");
   const [error, setError] = useState<string | null>(null);
   const [commonAnalysis, setCommonAnalysis] = useState<CommonAnalysisJson | null>(null);
@@ -145,8 +145,8 @@ export default function RecordDetailPage() {
   const runPipeline = useCallback(async () => {
     if (!record?.candidateId) return;
     const useCache = useCachedAnalysis && record.hasAnalysisResult;
-    if (!useCache && !files.pdf && !files.interviewLog && !files.flagList) {
-      setError("PDF・面談ログ・フラグリストのいずれか1つ以上をアップロードしてください。");
+    if (!useCache && !files.pdf && !files.interviewLog) {
+      setError("PDF・面談ログのいずれか1つ以上をアップロードしてください。");
       return;
     }
     if (!achievementCategory || !ACHIEVEMENT_OPTIONS.includes(achievementCategory as (typeof ACHIEVEMENT_OPTIONS)[number])) {
@@ -180,7 +180,6 @@ export default function RecordDetailPage() {
       }
       if (files.pdf) formData.append("pdf", files.pdf);
       if (files.interviewLog) formData.append("interviewLog", files.interviewLog);
-      if (files.flagList) formData.append("flagList", files.flagList);
       const analyzeRes = await fetch("/api/intake/analyze", { method: "POST", body: formData });
       if (!analyzeRes.ok) {
         const err = await analyzeRes.json().catch(() => ({}));
@@ -226,7 +225,7 @@ export default function RecordDetailPage() {
       const attachmentSummary = {
         pdfName: files.pdf?.name ?? undefined,
         interviewLogName: files.interviewLog?.name ?? undefined,
-        flagListName: files.flagList?.name ?? undefined,
+        flagListName: undefined,
       };
       const cacheFormData = new FormData();
       cacheFormData.append("attachmentSummary", JSON.stringify(attachmentSummary));
@@ -484,7 +483,7 @@ export default function RecordDetailPage() {
     step === "questions" ||
     step === "excel" ||
     step === "question_text";
-  const hasFiles = !!(files.pdf || files.interviewLog || files.flagList);
+  const hasFiles = !!(files.pdf || files.interviewLog);
   const canUseCachedAnalysis = useCachedAnalysis && record?.hasAnalysisResult;
   const canStartOutput =
     (hasFiles || canUseCachedAnalysis) &&
@@ -634,7 +633,7 @@ export default function RecordDetailPage() {
             <section className="space-y-6">
               <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
                 <h2 className="mb-2 text-lg font-semibold text-gray-900">ファイルアップロード</h2>
-                <p className="mb-4 text-sm text-gray-500">PDF・面談ログ・フラグリストをドラッグ＆ドロップまたはクリックで選択</p>
+                <p className="mb-4 text-sm text-gray-500">PDF・面談ログをドラッグ＆ドロップまたはクリックで選択</p>
                 <UploadPanel files={files} onFilesChange={setFiles} disabled={running} showTitle={false} />
                 {!hasFiles && step === "idle" && (
                   <p className="mt-3 text-sm text-amber-700">ファイルを選択してください。</p>
