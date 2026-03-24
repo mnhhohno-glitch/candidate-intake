@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateWithGemini, parseJsonResponse } from "@/services/geminiClient";
-import { extractTextFromPdf, extractTextFromXlsx } from "@/services/extractText";
+import { extractTextFromPdf } from "@/services/extractText";
+import { FLAG_LIST_TSV } from "@/constants/flags";
 import {
   isValidWebResumeFilename,
   extractCandidateNoFromFilename,
@@ -162,7 +163,6 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const pdfFile = formData.get("pdf") as File | null;
     const interviewFile = formData.get("interviewLog") as File | null;
-    const flagListFile = formData.get("flagList") as File | null;
     const registeredCandidateId = (formData.get("candidateId") as string | null)?.trim() ?? null;
     const useCachedAnalysis = formData.get("useCachedAnalysis") === "true";
     const validRegisteredId = registeredCandidateId && /^5\d{6}$/.test(registeredCandidateId);
@@ -199,7 +199,8 @@ export async function POST(request: NextRequest) {
 
     let pdfText = "";
     let interviewLog = "";
-    let flagListText = "";
+    // フラグリストは埋め込み定数から取得（アップロード不要）
+    const flagListText = FLAG_LIST_TSV;
 
     if (pdfFile?.size) {
       const buf = Buffer.from(await pdfFile.arrayBuffer());
@@ -207,10 +208,6 @@ export async function POST(request: NextRequest) {
     }
     if (interviewFile?.size) {
       interviewLog = await interviewFile.text();
-    }
-    if (flagListFile?.size) {
-      const buf = Buffer.from(await flagListFile.arrayBuffer());
-      flagListText = await extractTextFromXlsx(buf);
     }
 
     const { systemInstruction, userPrompt } = buildCommonAnalysisPrompt(
