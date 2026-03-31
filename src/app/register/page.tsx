@@ -12,6 +12,11 @@ const PORTAL_URL = process.env.NEXT_PUBLIC_PORTAL_API_URL || 'https://bizstudio-
 
 export default function RegisterPage() {
   const router = useRouter();
+
+  // URLパラメータをクライアント側で直接読み取り
+  const [paramCandidateId, setParamCandidateId] = useState<string | null>(null);
+  const [paramFiles, setParamFiles] = useState<string | null>(null);
+
   const [selectedCandidateNo, setSelectedCandidateNo] = useState("");
   const [selectedCandidateName, setSelectedCandidateName] = useState("");
   const [careerAdvisor, setCareerAdvisor] = useState<string>("");
@@ -20,6 +25,13 @@ export default function RegisterPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [isLoadingCandidates, setIsLoadingCandidates] = useState(true);
+
+  // マウント時にURLパラメータを読み取る
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setParamCandidateId(params.get("candidateId"));
+    setParamFiles(params.get("files"));
+  }, []);
 
   // Portal APIから求職者一覧を取得
   useEffect(() => {
@@ -36,11 +48,24 @@ export default function RegisterPage() {
     loadData();
   }, []);
 
+  // URLパラメータによる求職者自動選択
+  useEffect(() => {
+    if (!paramCandidateId || candidates.length === 0) return;
+    if (selectedCandidateNo) return; // 既に選択済み（手動変更含む）ならスキップ
+    // candidateIdパラメータはPortalのcuid ID — idフィールドで検索
+    const found = candidates.find((c) => c.id === paramCandidateId);
+    if (found) {
+      setSelectedCandidateNo(found.candidateNo);
+      setSelectedCandidateName(found.name);
+      setCareerAdvisor(found.careerAdvisor || "");
+    }
+  }, [paramCandidateId, candidates, selectedCandidateNo]);
+
   // 検索でフィルタリングされた求職者一覧
   const filteredCandidates = useMemo(() => {
     if (!searchQuery.trim()) return candidates;
     const query = searchQuery.toLowerCase();
-    return candidates.filter(c => 
+    return candidates.filter(c =>
       c.candidateNo.toLowerCase().includes(query) ||
       c.name.toLowerCase().includes(query)
     );
@@ -78,7 +103,9 @@ export default function RegisterPage() {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || "登録の保存に失敗しました");
       }
-      router.push(`/records/${newRecord.candidateId}`);
+      // filesパラメータがあれば転送
+      const query = paramFiles ? `?files=${encodeURIComponent(paramFiles)}` : "";
+      router.push(`/records/${newRecord.candidateId}${query}`);
       return;
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "登録の保存に失敗しました");
@@ -119,7 +146,7 @@ export default function RegisterPage() {
                     新規登録
                   </button>
                 </div>
-                
+
                 {/* 検索入力 */}
                 <div className="relative mb-2">
                   <svg className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

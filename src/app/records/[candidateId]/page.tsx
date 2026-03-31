@@ -35,6 +35,9 @@ export default function RecordDetailPage() {
   const params = useParams();
   const router = useRouter();
   const candidateId = typeof params.candidateId === "string" ? params.candidateId : "";
+
+  // URLパラメータをクライアント側で直接読み取り
+  const [paramFiles, setParamFiles] = useState<string | null>(null);
   const [record, setRecord] = useState<StoredRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -63,6 +66,8 @@ export default function RecordDetailPage() {
   const [formCreating, setFormCreating] = useState(false);
   const [useCachedAnalysis, setUseCachedAnalysis] = useState(false);
   const [retryPdfFile, setRetryPdfFile] = useState<File | null>(null);
+  const [driveFilesLoading, setDriveFilesLoading] = useState(false);
+  const [driveFilesError, setDriveFilesError] = useState<string | null>(null);
   type LeftMenuKey = "detail" | "upload" | "output";
   const [activeMenu, setActiveMenu] = useState<LeftMenuKey>("upload");
 
@@ -72,6 +77,12 @@ export default function RecordDetailPage() {
     "専門・技術職",
     "マネジメント職",
   ] as const;
+
+  // マウント時にURLパラメータを読み取る
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setParamFiles(params.get("files"));
+  }, []);
 
   useEffect(() => {
     if (!candidateId) return;
@@ -122,6 +133,60 @@ export default function RecordDetailPage() {
     };
     loadEmployees();
   }, []);
+
+  // URLパラメータのdriveFileIdからファイルを自動ダウンロード・添付
+  useEffect(() => {
+    if (!paramFiles) return;
+    const driveFileIds = paramFiles.split(",").filter(Boolean);
+    if (driveFileIds.length === 0) return;
+
+    let cancelled = false;
+    setDriveFilesLoading(true);
+    setDriveFilesError(null);
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/drive-files?ids=${encodeURIComponent(driveFileIds.join(","))}`);
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error((errData as { error?: string }).error || `ファイルの取得に失敗しました (${res.status})`);
+        }
+        const data = await res.json() as {
+          files: { name: string; mimeType: string; base64: string; size: number }[];
+        };
+        if (cancelled) return;
+        if (!data.files || data.files.length === 0) {
+          setDriveFilesError("Google Drive からファイルを取得できませんでした。ファイルが存在しないか、アクセス権限がない可能性があります。");
+          return;
+        }
+
+        const next: UploadFiles = { pdf: null, interviewLog: null };
+        for (const f of data.files) {
+          const bytes = Uint8Array.from(atob(f.base64), (c) => c.charCodeAt(0));
+          const file = new File([bytes], f.name, { type: f.mimeType });
+          const nameLower = f.name.toLowerCase();
+          if (!next.pdf && (f.mimeType === "application/pdf" || nameLower.endsWith(".pdf"))) {
+            next.pdf = file;
+          } else if (!next.interviewLog && (f.mimeType === "text/plain" || nameLower.endsWith(".txt"))) {
+            next.interviewLog = file;
+          }
+        }
+        if (!cancelled) {
+          setFiles(next);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          const msg = err instanceof Error ? err.message : "ファイルの自動添付に失敗しました";
+          setDriveFilesError(msg);
+          console.error("Drive ファイル自動添付エラー:", err);
+        }
+      } finally {
+        if (!cancelled) setDriveFilesLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [paramFiles]);
 
   const handleSave = useCallback(async () => {
     if (!candidateId) return;
@@ -634,8 +699,22 @@ export default function RecordDetailPage() {
               <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
                 <h2 className="mb-2 text-lg font-semibold text-gray-900">ファイルアップロード</h2>
                 <p className="mb-4 text-sm text-gray-500">PDF・面談ログをドラッグ＆ドロップまたはクリックで選択</p>
-                <UploadPanel files={files} onFilesChange={setFiles} disabled={running} showTitle={false} />
-                {!hasFiles && step === "idle" && (
+                {driveFilesLoading && (
+                  <div className="mb-3 flex items-center gap-2 rounded bg-blue-50 px-3 py-2 text-sm text-blue-700">
+                    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Google Drive からファイルを取得中...
+                  </div>
+                )}
+                {driveFilesError && (
+                  <div className="mb-3 rounded bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {driveFilesError}（手動でファイルをアップロードできます）
+                  </div>
+                )}
+                <UploadPanel files={files} onFilesChange={setFiles} disabled={running || driveFilesLoading} showTitle={false} />
+                {!hasFiles && !driveFilesLoading && step === "idle" && (
                   <p className="mt-3 text-sm text-amber-700">ファイルを選択してください。</p>
                 )}
               </div>

@@ -114,13 +114,47 @@ export function UploadPanel({
         </p>
       </div>
       <div className="mt-3 space-y-1 text-sm text-gray-600">
-        <p>
+        <p className="flex items-center gap-1">
           <span className="font-medium">履歴書 PDF:</span>{" "}
-          {files.pdf ? files.pdf.name : "未選択"}
+          {files.pdf ? (
+            <>
+              {files.pdf.name}
+              {!disabled && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onFilesChange({ ...files, pdf: null });
+                  }}
+                  className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-gray-300 text-xs text-gray-600 hover:bg-red-400 hover:text-white"
+                  aria-label="PDFを削除"
+                >
+                  &times;
+                </button>
+              )}
+            </>
+          ) : "未選択"}
         </p>
-        <p>
+        <p className="flex items-center gap-1">
           <span className="font-medium">面談ログ .txt:</span>{" "}
-          {files.interviewLog ? files.interviewLog.name : "未選択"}
+          {files.interviewLog ? (
+            <>
+              {files.interviewLog.name}
+              {!disabled && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onFilesChange({ ...files, interviewLog: null });
+                  }}
+                  className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-gray-300 text-xs text-gray-600 hover:bg-red-400 hover:text-white"
+                  aria-label="面談ログを削除"
+                >
+                  &times;
+                </button>
+              )}
+            </>
+          ) : "未選択"}
         </p>
       </div>
     </section>
