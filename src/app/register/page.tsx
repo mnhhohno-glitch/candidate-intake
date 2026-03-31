@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   type RegisteredRecord,
 } from "@/components/RecordRegister";
@@ -26,6 +26,10 @@ export default function RegisterPage() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [isLoadingCandidates, setIsLoadingCandidates] = useState(true);
 
+  // 自動遷移中のローディング状態
+  const [autoRegistering, setAutoRegistering] = useState(false);
+  const autoRegisterAttempted = useRef(false);
+
   // マウント時にURLパラメータを読み取る
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -48,18 +52,57 @@ export default function RegisterPage() {
     loadData();
   }, []);
 
-  // URLパラメータによる求職者自動選択
+  // レコード作成＋遷移の共通処理
+  const createRecordAndNavigate = useCallback(
+    async (candidate: Candidate, files: string | null) => {
+      const record: RegisteredRecord = {
+        candidateId: candidate.candidateNo,
+        candidateName: candidate.name,
+        careerAdvisor: candidate.careerAdvisor || "",
+      };
+      const res = await fetch("/api/records", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          candidateId: record.candidateId,
+          candidateName: record.candidateName,
+          careerAdvisor: record.careerAdvisor,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "登録の保存に失敗しました");
+      }
+      const query = files ? `?files=${encodeURIComponent(files)}` : "";
+      router.push(`/records/${record.candidateId}${query}`);
+    },
+    [router]
+  );
+
+  // candidateIdパラメータがある場合、自動でレコード作成＆遷移
   useEffect(() => {
     if (!paramCandidateId || candidates.length === 0) return;
-    if (selectedCandidateNo) return; // 既に選択済み（手動変更含む）ならスキップ
-    // candidateIdパラメータはPortalのcuid ID — idフィールドで検索
+    if (autoRegisterAttempted.current) return;
+    autoRegisterAttempted.current = true;
+
     const found = candidates.find((c) => c.id === paramCandidateId);
-    if (found) {
+    if (!found) {
+      // 見つからない場合は手動選択にフォールバック
+      setFormError(`指定された求職者（ID: ${paramCandidateId}）が見つかりません。一覧から選択してください。`);
+      return;
+    }
+
+    // 自動レコード作成＆遷移
+    setAutoRegistering(true);
+    createRecordAndNavigate(found, paramFiles).catch((err) => {
+      // 失敗時は手動選択にフォールバック（候補者は事前選択しておく）
+      setAutoRegistering(false);
       setSelectedCandidateNo(found.candidateNo);
       setSelectedCandidateName(found.name);
       setCareerAdvisor(found.careerAdvisor || "");
-    }
-  }, [paramCandidateId, candidates, selectedCandidateNo]);
+      setFormError(err instanceof Error ? err.message : "自動登録に失敗しました。手動で「作成する」を押してください。");
+    });
+  }, [paramCandidateId, paramFiles, candidates, createRecordAndNavigate]);
 
   // 検索でフィルタリングされた求職者一覧
   const filteredCandidates = useMemo(() => {
@@ -83,36 +126,36 @@ export default function RegisterPage() {
       setFormError("求職者を選択してください。");
       return;
     }
-    const newRecord: RegisteredRecord = {
-      candidateId: selectedCandidateNo,
-      candidateName: selectedCandidateName,
-      careerAdvisor: careerAdvisor,
-    };
+    const found = candidates.find((c) => c.candidateNo === selectedCandidateNo);
+    if (!found) {
+      setFormError("選択された求職者が見つかりません。");
+      return;
+    }
     setIsSubmitting(true);
     try {
-      const res = await fetch("/api/records", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          candidateId: newRecord.candidateId,
-          candidateName: newRecord.candidateName,
-          careerAdvisor: newRecord.careerAdvisor,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || "登録の保存に失敗しました");
-      }
-      // filesパラメータがあれば転送
-      const query = paramFiles ? `?files=${encodeURIComponent(paramFiles)}` : "";
-      router.push(`/records/${newRecord.candidateId}${query}`);
-      return;
+      await createRecordAndNavigate(found, paramFiles);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "登録の保存に失敗しました");
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  // 自動遷移中のローディング画面
+  if (autoRegistering) {
+    return (
+      <main className="flex min-h-screen items-center justify-center px-4">
+        <div className="text-center">
+          <svg className="mx-auto mb-4 h-8 w-8 animate-spin text-blue-600" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <p className="text-lg font-medium text-gray-700">面談登録を準備しています...</p>
+          <p className="mt-1 text-sm text-gray-500">自動的にレコード画面に移動します</p>
+        </div>
+      </main>
+    );
+  }
 
   return (
       <main className="min-h-screen px-4 py-8">
