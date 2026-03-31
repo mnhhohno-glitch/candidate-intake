@@ -442,6 +442,14 @@ function doCreateForm(candidateId, candidateName, questionText, result) {
   try {
     var formFile = DriveApp.getFileById(form.getId());
     formFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    // ドメイン内の社員に編集権限を明示的に付与
+    formFile.addEditors([
+      "masayuki_oono@bizstudio.co.jp",
+      "yoshitomi_ando@bizstudio.co.jp",
+      "kanako_okada@bizstudio.co.jp",
+      "yuzo_nanjo@bizstudio.co.jp",
+      "aoi_sato@bizstudio.co.jp"
+    ]);
   } catch (driveErr) {
     result.shareWarning =
       "フォームは作成されましたが、共有設定（リンクを知っている全員）ができていません。編集画面の「公開」→「管理」で「リンクを知っている全員」に変更するか、GASプロジェクトにDriveの権限を追加して再デプロイしてください。";
