@@ -924,6 +924,32 @@ export default function RecordDetailPage() {
                         </div>
                     )}
                   </div>
+                  {/* 求人検索タスク作成 */}
+                  <div style={{ marginTop: "24px", paddingTop: "16px", borderTop: "1px solid #e5e7eb" }}>
+                    <h3 style={{ fontWeight: "bold", marginBottom: "8px" }}>タスク作成</h3>
+                    <button
+                      onClick={() => {
+                        const portalBaseUrl = (process.env.NEXT_PUBLIC_PORTAL_API_URL || "https://bizstudio-portal-production.up.railway.app").replace(/\/+$/, "");
+                        const categoryId = "cmmvzf6ct001m1doafno6y037";
+                        const url = `${portalBaseUrl}/tasks/new?candidateId=${candidateId}&categoryId=${categoryId}`;
+                        window.open(url, "_blank");
+                      }}
+                      style={{
+                        padding: "8px 16px",
+                        backgroundColor: "#4f46e5",
+                        color: "white",
+                        border: "none",
+                        borderRadius: "6px",
+                        cursor: "pointer",
+                        fontSize: "14px",
+                      }}
+                    >
+                      求人検索タスクを作成
+                    </button>
+                    <p style={{ fontSize: "12px", color: "#6b7280", marginTop: "4px" }}>
+                      ポータルのタスク作成画面が別タブで開きます
+                    </p>
+                  </div>
                 </div>
               )}
               {step === "idle" && !running && (
@@ -1041,6 +1067,32 @@ export default function RecordDetailPage() {
                             </button>
                           </div>
                         )}
+                      </div>
+                      {/* 求人検索タスク作成 */}
+                      <div style={{ marginTop: "24px", paddingTop: "16px", borderTop: "1px solid #e5e7eb" }}>
+                        <h3 style={{ fontWeight: "bold", marginBottom: "8px" }}>タスク作成</h3>
+                        <button
+                          onClick={() => {
+                            const portalBaseUrl = (process.env.NEXT_PUBLIC_PORTAL_API_URL || "https://bizstudio-portal-production.up.railway.app").replace(/\/+$/, "");
+                            const categoryId = "cmmvzf6ct001m1doafno6y037";
+                            const url = `${portalBaseUrl}/tasks/new?candidateId=${candidateId}&categoryId=${categoryId}`;
+                            window.open(url, "_blank");
+                          }}
+                          style={{
+                            padding: "8px 16px",
+                            backgroundColor: "#4f46e5",
+                            color: "white",
+                            border: "none",
+                            borderRadius: "6px",
+                            cursor: "pointer",
+                            fontSize: "14px",
+                          }}
+                        >
+                          求人検索タスクを作成
+                        </button>
+                        <p style={{ fontSize: "12px", color: "#6b7280", marginTop: "4px" }}>
+                          ポータルのタスク作成画面が別タブで開きます
+                        </p>
                       </div>
                     </div>
                   ) : (
