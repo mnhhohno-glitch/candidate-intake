@@ -297,6 +297,7 @@ export const FILEMAKER_MAPPING_KEYS = [
   "学歴フラグ",
   "学歴メモ",
   "卒業年月",
+  "graduationStatus",
   "面談メモ",
   "希望職種フラグ",
   "希望職種フラグ2",

@@ -130,8 +130,17 @@ export function buildCommonAnalysisResponseSchema() {
           応募種別フラグ: buildEnumProperty("応募状況", FLAG_DEFINITIONS.応募種別フラグ),
           応募状況メモ: buildStringProperty("応募状況の詳細"),
           学歴フラグ: buildEnumProperty("最終学歴", FLAG_DEFINITIONS.学歴フラグ),
-          学歴メモ: buildStringProperty("学歴の詳細"),
-          卒業年月: buildStringProperty("YYYY年M月 卒業 形式"),
+          学歴メモ: buildStringProperty(
+            "学校名と学部学科のみを記載する。例: 「文京学院大学 外国語学部 英語コミュニケーション学科」。卒業区分（卒業/中退/在学中等）や卒業予定の文字は含めない。"
+          ),
+          卒業年月: buildStringProperty(
+            "YYYY年M月 形式のみ。例: 「2025年3月」。「卒業」「卒業予定」「修了」等の文字を含めない。卒業区分は別フィールドで扱う。"
+          ),
+          graduationStatus: {
+            type: "string",
+            enum: ["卒業", "卒業予定", "在学中", "中退", "修了", "その他"],
+            description: "卒業区分。PDFまたは面談ログから抽出。明記がない場合はnull。",
+          },
           面談メモ: buildStringProperty("面談全体のメモ"),
           希望職種フラグ: buildStringProperty("希望職種カテゴリ"),
           希望職種フラグ2: buildStringProperty(
