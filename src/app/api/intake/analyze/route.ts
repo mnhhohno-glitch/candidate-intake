@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateWithGemini, parseJsonResponse } from "@/services/geminiClient";
-import { extractTextFromPdf } from "@/services/extractText";
+import { extractTextWithVisionFallback } from "@/services/extractTextWithVisionFallback";
 import { FLAG_LIST_TSV } from "@/constants/flags";
 import {
   isValidWebResumeFilename,
@@ -202,9 +202,12 @@ export async function POST(request: NextRequest) {
     // フラグリストは埋め込み定数から取得（アップロード不要）
     const flagListText = FLAG_LIST_TSV;
 
+    let pdfMethod = "none";
     if (pdfFile?.size) {
       const buf = Buffer.from(await pdfFile.arrayBuffer());
-      pdfText = await extractTextFromPdf(buf);
+      const result = await extractTextWithVisionFallback(buf, "intake-analyze");
+      pdfText = result.text;
+      pdfMethod = result.method;
     }
     if (interviewFile?.size) {
       interviewLog = await interviewFile.text();
@@ -222,7 +225,7 @@ export async function POST(request: NextRequest) {
     const interviewLen = interviewLog.length;
     const flagLen = flagListText.length;
     console.log(
-      `[intake/analyze] Input lengths: PDF=${pdfLen} chars, interview=${interviewLen} chars, flagList=${flagLen} chars, total prompt ~${systemInstruction.length + userPrompt.length} chars`
+      `[intake/analyze] Input lengths: PDF=${pdfLen} chars (method=${pdfMethod}), interview=${interviewLen} chars, flagList=${flagLen} chars, total prompt ~${systemInstruction.length + userPrompt.length} chars`
     );
     if (pdfLen === 0 && pdfFile?.size) {
       console.warn(

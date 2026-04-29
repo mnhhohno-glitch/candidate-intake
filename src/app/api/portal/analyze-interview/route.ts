@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateWithGemini, parseJsonResponse } from "@/services/geminiClient";
-import { extractTextFromPdf } from "@/services/extractText";
+import { extractTextWithVisionFallback } from "@/services/extractTextWithVisionFallback";
 import { FLAG_LIST_TSV } from "@/constants/flags";
 import { buildCommonAnalysisPrompt } from "@/services/loadSpec";
 import {
@@ -221,8 +221,8 @@ export async function POST(request: NextRequest) {
       return jsonError("pdfBuffer is not valid base64", 400);
     }
 
-    // --- PDF text extraction ---
-    const pdfText = await extractTextFromPdf(pdfBuf);
+    // --- PDF text extraction (with Gemini Vision fallback) ---
+    const { text: pdfText, method: pdfMethod } = await extractTextWithVisionFallback(pdfBuf, "portal-analyze");
     const flagListText = FLAG_LIST_TSV;
 
     const { systemInstruction, userPrompt } = buildCommonAnalysisPrompt(
@@ -235,7 +235,7 @@ export async function POST(request: NextRequest) {
     // --- Gemini call with retries ---
     const analyzeStart = Date.now();
     console.log(
-      `[portal/analyze-interview] candidate=${candidateNumber} PDF=${pdfText.length}chars interview=${(interviewLog as string).length}chars`
+      `[portal/analyze-interview] candidate=${candidateNumber} PDF=${pdfText.length}chars method=${pdfMethod} interview=${(interviewLog as string).length}chars`
     );
 
     const responseSchema = buildCommonAnalysisResponseSchema();
