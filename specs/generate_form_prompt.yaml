@@ -57,8 +57,6 @@ greeting:
   title: "{candidate_name}様_質問フォーム"  # Q19: 現状維持
   description: "候補者向けヒアリングフォーム（Candidate Intake から作成）"
   body: |
-    {candidate_name}様
-
     お世話になっております。
 
     応募書類を作成するにあたり追加でいただきたい情報を以下の通りお送りいたします。
