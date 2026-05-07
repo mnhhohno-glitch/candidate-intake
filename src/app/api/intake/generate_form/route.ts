@@ -128,6 +128,14 @@ type GenerateFormInput = {
   interviewLog: string;
   achievementCategory: string;
   achievementCategoryOtherLabel: string | null;
+  /**
+   * 会社別 subcategory マップ（T-035: 業界混在対応、後方互換 optional）
+   * - キー: work_history 配列インデックスの文字列（例: "0", "1", "2"）
+   * - 値: subcategory コード（例: "sales_corporate", "office_general", "other"）
+   * - 未指定 / 空 / 該当キー無し → achievementCategory にフォールバック
+   * - "other" の自由記述は achievementCategoryOtherLabel をグローバル共有
+   */
+  companyCategoryMap?: Record<string, string>;
 };
 
 const OTHER_OPTION_LABEL = "その他（自由記述）";
@@ -182,6 +190,51 @@ const OTHER_FALLBACK: SpecSubcategory = {
     },
   ],
 };
+
+// "other" 選択時の SpecSubcategory を構築する。
+// otherLabel が与えられた場合は label にだけ差し込む（duties/mindset/kpi 内容は OTHER_FALLBACK と同一）。
+function buildOtherSubcategory(otherLabel: string | null): SpecSubcategory {
+  const trimmed = otherLabel && otherLabel.trim() ? otherLabel.trim() : "";
+  return {
+    ...OTHER_FALLBACK,
+    label: trimmed ? `その他（${trimmed}）` : OTHER_FALLBACK.label,
+  };
+}
+
+/**
+ * 会社別 subcategory を解決する（T-035: 業界混在対応）。
+ * - companyCategoryMap に該当インデックスがあればそれを使う
+ * - 値が "other" → buildOtherSubcategory(otherLabel)
+ * - 値が未知のコード → 警告ログを出して defaultSubcategory にフォールバック
+ * - 該当キーが無い / マップ自体が undefined → defaultSubcategory にフォールバック
+ */
+function resolveCompanySubcategory(
+  index: number,
+  companyCategoryMap: Record<string, string> | undefined,
+  spec: GenerateFormSpec,
+  otherLabel: string | null,
+  defaultSubcategory: SpecSubcategory
+): { subcategory: SpecSubcategory; resolvedCode: string; source: "map" | "default" } {
+  const key = String(index);
+  const code = companyCategoryMap?.[key];
+
+  if (!code) {
+    return { subcategory: defaultSubcategory, resolvedCode: "(default)", source: "default" };
+  }
+
+  if (code === "other") {
+    return { subcategory: buildOtherSubcategory(otherLabel), resolvedCode: "other", source: "map" };
+  }
+
+  const sub = spec.subcategories[code];
+  if (!sub) {
+    console.warn(
+      `[generate_form] Unknown subcategory code "${code}" at index ${index}, falling back to default`
+    );
+    return { subcategory: defaultSubcategory, resolvedCode: "(default)", source: "default" };
+  }
+  return { subcategory: sub, resolvedCode: code, source: "map" };
+}
 
 // ---- ヘルパー ----
 
@@ -271,7 +324,10 @@ function buildAddressSection(
 function buildWorkContentSections(
   spec: SpecWorkContent,
   workHistory: WorkHistoryItem[],
-  subcategory: SpecSubcategory
+  defaultSubcategory: SpecSubcategory,
+  fullSpec: GenerateFormSpec,
+  companyCategoryMap: Record<string, string> | undefined,
+  otherLabel: string | null
 ): FormSection[] {
   const dyn = spec.dynamic_per_company;
   const sections: FormSection[] = [];
@@ -297,6 +353,18 @@ function buildWorkContentSections(
   for (let i = 0; i < workHistory.length; i++) {
     const company = workHistory[i];
     const items: QuestionItem[] = [];
+
+    // 会社ごとに subcategory を解決（T-035: 業界混在対応）
+    const { subcategory, resolvedCode, source } = resolveCompanySubcategory(
+      i,
+      companyCategoryMap,
+      fullSpec,
+      otherLabel,
+      defaultSubcategory
+    );
+    console.log(
+      `[generate_form] index=${i} company="${company.company ?? ""}" resolvedSubcategory=${resolvedCode} source=${source}`
+    );
 
     // 配属情報 3 質問
     for (const info of dyn.placement_info) {
@@ -395,10 +463,13 @@ function buildGenericSection(id: string, spec: SpecGenericSection): FormSection 
 function buildQuestionsJson(input: GenerateFormInput): QuestionsJson {
   const spec = loadSpec();
 
-  const subcategory =
+  // achievementCategory から default(全社共通フォールバック / mindset_section 用) subcategory を解決
+  const defaultSubcategory =
     spec.subcategories[input.achievementCategory] ??
-    (input.achievementCategory === "other" ? OTHER_FALLBACK : null);
-  if (!subcategory) {
+    (input.achievementCategory === "other"
+      ? buildOtherSubcategory(input.achievementCategoryOtherLabel)
+      : null);
+  if (!defaultSubcategory) {
     throw new Error(
       `Unknown achievementCategory: ${input.achievementCategory}. Must be one of 21 subcategories or "other".`
     );
@@ -427,11 +498,15 @@ function buildQuestionsJson(input: GenerateFormInput): QuestionsJson {
         ...buildWorkContentSections(
           spec.work_content_section,
           input.resumeData.work_history,
-          subcategory
+          defaultSubcategory,
+          spec,
+          input.companyCategoryMap,
+          input.achievementCategoryOtherLabel
         )
       );
     } else if (sectionKey === "mindset_section") {
-      sections.push(buildMindsetSection(spec.mindset_section, subcategory));
+      // mindset_section は候補者全体の仕事観を問う質問のため defaultSubcategory を使用
+      sections.push(buildMindsetSection(spec.mindset_section, defaultSubcategory));
     } else if (sectionKey === "work_consciousness") {
       sections.push(
         buildGenericSection("work_consciousness", spec.generic_sections.work_consciousness)
@@ -474,6 +549,36 @@ export async function POST(request: NextRequest) {
         ? body.achievementCategoryOtherLabel.trim()
         : null;
 
+    // companyCategoryMap (T-035: 業界混在対応 / optional)
+    let companyCategoryMap: Record<string, string> | undefined;
+    if (body.companyCategoryMap !== undefined && body.companyCategoryMap !== null) {
+      const raw = body.companyCategoryMap;
+      if (typeof raw !== "object" || Array.isArray(raw)) {
+        return NextResponse.json(
+          { error: "companyCategoryMap はオブジェクト（{ \"0\": \"sales_corporate\", ... }形式）で指定してください。" },
+          { status: 400 }
+        );
+      }
+      const entries = Object.entries(raw as Record<string, unknown>);
+      const validated: Record<string, string> = {};
+      for (const [k, v] of entries) {
+        if (!/^\d+$/.test(k)) {
+          return NextResponse.json(
+            { error: `companyCategoryMap のキーは数値文字列である必要があります（不正なキー: "${k}"）。` },
+            { status: 400 }
+          );
+        }
+        if (typeof v !== "string" || !v.trim()) {
+          return NextResponse.json(
+            { error: `companyCategoryMap の値は文字列である必要があります（キー "${k}" の値が不正）。` },
+            { status: 400 }
+          );
+        }
+        validated[k] = v.trim();
+      }
+      companyCategoryMap = validated;
+    }
+
     if (!candidateId || !/^5\d{6}$/.test(candidateId)) {
       return NextResponse.json(
         { error: "candidateId は5から始まる7桁の数字で指定してください。" },
@@ -497,7 +602,9 @@ export async function POST(request: NextRequest) {
       ? resumeData.work_history.length
       : 0;
     console.log(
-      `[generate_form] start candidateId=${candidateId} subcategory=${achievementCategory} workHistoryCount=${workHistoryCount}`
+      `[generate_form] start candidateId=${candidateId} defaultCategory=${achievementCategory} ` +
+        `companyCategoryMap=${companyCategoryMap ? JSON.stringify(companyCategoryMap) : "none"} ` +
+        `workHistoryCount=${workHistoryCount}`
     );
 
     const input: GenerateFormInput = {
@@ -507,6 +614,7 @@ export async function POST(request: NextRequest) {
       interviewLog,
       achievementCategory,
       achievementCategoryOtherLabel,
+      companyCategoryMap,
     };
 
     let questionsJson: QuestionsJson;
