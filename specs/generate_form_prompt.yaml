@@ -35,6 +35,7 @@ target_subcategories:
   - office_accounting
   - office_hr
   - office_other
+  - office_reception
   - planning_marketing
   - planning_pr
   - planning_planning
@@ -45,6 +46,7 @@ target_subcategories:
   - it_internal
   - service_sales
   - service_cs
+  - service_cs_sv
   - service_ground_staff
   - care_childcare
   - care_welfare
@@ -817,6 +819,67 @@ subcategories:
         required: false
 
   # =========================================================================
+  # office_reception(受付)
+  # =========================================================================
+  office_reception:
+    label: "受付"
+
+    duties_choices:
+      - "来客対応・受付窓口業務"
+      - "電話の一次対応・取次"
+      - "メール・問い合わせの一次対応"
+      - "来訪予約・アポイントメント管理"
+      - "会議室予約・スケジュール調整"
+      - "入退館手続き・セキュリティ受付"
+      - "郵便物・宅配便の受け取り・仕分け"
+      - "備品管理・消耗品発注"
+      - "簡単なデータ入力・書類整理"
+      - "応接室・ロビーの環境整備"
+      - "後輩・新人への受付業務指導"
+
+    mindset_choices:
+      - "第一印象を意識した接遇マナー"
+      - "笑顔と丁寧な言葉遣いの徹底"
+      - "正確で迅速な取次・連絡"
+      - "複数来客・電話の同時さばき"
+      - "臨機応変な対応・気配り"
+      - "身だしなみ・所作への意識"
+      - "社内メンバーとの円滑な連携"
+      - "機密情報・来訪者情報の管理徹底"
+      - "クレーム・トラブル時の冷静な対応"
+      - "業務マニュアル・引継ぎ書の整備"
+      - "自己研鑽（接遇研修・語学習得）"
+
+    kpi_questions:
+      - title: "{company.name}での1日あたりの来客対応件数を教えてください"
+        help_text: |
+          数値のみで入力してください。例：30
+          ※該当しない場合は空白で構いません
+        type: short_text
+        required: false
+
+      - title: "{company.name}での1日あたりの電話対応件数を教えてください"
+        help_text: |
+          数値のみで入力してください。例：50
+          ※該当しない場合は空白で構いません
+        type: short_text
+        required: false
+
+      - title: "{company.name}で対応していた拠点・部署の規模を教えてください"
+        help_text: |
+          例：本社ビル全フロア・社員500名規模、支店受付・社員80名規模 等
+          ※該当しない場合は空白で構いません
+        type: short_text
+        required: false
+
+      - title: "{company.name}で行った業務改善・効率化のエピソードがあれば教えてください"
+        help_text: |
+          例：来客マニュアル整備で新人教育時間半減、受付ツール導入で待ち時間30%短縮 等
+          ※該当しない場合は空白で構いません
+        type: long_text
+        required: false
+
+  # =========================================================================
   # planning_marketing(マーケティング)
   # =========================================================================
   planning_marketing:
@@ -1443,6 +1506,74 @@ subcategories:
       - title: "{company.name}で使用していたCRM・チケットシステムを教えてください"
         help_text: |
           例：Salesforce、Zendesk、ServiceNow、HubSpot 等
+          ※該当しない場合は空白で構いません
+        type: short_text
+        required: false
+
+  # =========================================================================
+  # service_cs_sv（コールセンターSV / スーパーバイザー）
+  # =========================================================================
+  service_cs_sv:
+    label: "コールセンターSV"
+
+    duties_choices:
+      - "オペレーターの管理・育成・OJT"
+      - "シフト作成・勤怠管理・要員配置"
+      - "応答率・AHT・稼働率等のKPI管理"
+      - "応対品質モニタリング・フィードバック"
+      - "エスカレーション対応・難案件対応"
+      - "クレーム対応・関係部署エスカレーション"
+      - "業務マニュアル・トークスクリプトの整備"
+      - "オペレーター採用・面接・初期研修"
+      - "日次・週次・月次レポート作成"
+      - "業務改善施策の立案・実行"
+      - "クライアント（委託元）への報告・折衝"
+
+    mindset_choices:
+      - "チームマネジメント・メンバー育成"
+      - "数値（KPI）に基づく進捗管理"
+      - "応対品質と生産性のバランス"
+      - "オペレーターの離職防止・定着支援"
+      - "現場の声と上位層・クライアントの橋渡し"
+      - "難クレーム時の冷静なエスカレーション判断"
+      - "公平・公正な評価とフィードバック"
+      - "業務標準化・属人化解消の徹底"
+      - "コンプライアンス・個人情報管理の意識"
+      - "業界・最新ツール（AI/IVR等）のキャッチアップ"
+      - "自己研鑽（コンタクトセンター関連資格・研修）"
+
+    kpi_questions:
+      - title: "{company.name}で管理していたオペレーター人数・拠点規模を教えてください"
+        help_text: |
+          例：オペレーター30名、2拠点担当 等
+          ※該当しない場合は空白で構いません
+        type: short_text
+        required: false
+
+      - title: "{company.name}での担当チーム・センターの主要KPI（応答率/サービスレベル/AHT等）を教えてください"
+        help_text: |
+          例：応答率95%、サービスレベル80%(20秒)、AHT 5分30秒 等
+          ※該当しない場合は空白で構いません
+        type: long_text
+        required: false
+
+      - title: "{company.name}で達成したKPI改善実績を教えてください"
+        help_text: |
+          例：応答率85%→95%改善、AHT 6分→5分短縮、CSAT 3.8→4.5向上 等
+          ※該当しない場合は空白で構いません
+        type: long_text
+        required: false
+
+      - title: "{company.name}でのオペレーター離職率・定着率の実績を教えてください"
+        help_text: |
+          例：離職率年30%→15%改善、半年定着率80%以上維持 等
+          ※該当しない場合は空白で構いません
+        type: short_text
+        required: false
+
+      - title: "{company.name}で使用していたCRM・通話システム・WFM等を教えてください"
+        help_text: |
+          例：Salesforce Service Cloud、Genesys、Avaya、NICE WFM、Zendesk 等
           ※該当しない場合は空白で構いません
         type: short_text
         required: false

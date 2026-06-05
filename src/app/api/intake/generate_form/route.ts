@@ -470,8 +470,9 @@ function buildQuestionsJson(input: GenerateFormInput): QuestionsJson {
       ? buildOtherSubcategory(input.achievementCategoryOtherLabel)
       : null);
   if (!defaultSubcategory) {
+    const knownCount = Object.keys(spec.subcategories).length;
     throw new Error(
-      `Unknown achievementCategory: ${input.achievementCategory}. Must be one of 21 subcategories or "other".`
+      `Unknown achievementCategory: ${input.achievementCategory}. Must be one of ${knownCount} subcategories or "other".`
     );
   }
 
