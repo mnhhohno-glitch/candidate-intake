@@ -133,10 +133,30 @@ type GenerateFormInput = {
    * - キー: work_history 配列インデックスの文字列（例: "0", "1", "2"）
    * - 値: subcategory コード（例: "sales_corporate", "office_general", "other"）
    * - 未指定 / 空 / 該当キー無し → achievementCategory にフォールバック
-   * - "other" の自由記述は achievementCategoryOtherLabel をグローバル共有
    */
   companyCategoryMap?: Record<string, string>;
+  /**
+   * 会社別 自由記入ラベルマップ（T-052: その他系の会社別ラベル対応、後方互換 optional）
+   * - キー: work_history 配列インデックスの文字列（"0", "1", "2"）
+   * - 値: その会社の「何の◯◯か」を表す自由記入ラベル（例: "特許事務", "法務事務"）
+   * - 対象コード（OTHER_TYPE_CODES: other / office_other / planning_other / care_other）の会社にのみ
+   *   反映される。それ以外のコードでは無視。
+   * - 該当キー無し → 従来通り（"other" のときのみ achievementCategoryOtherLabel にフォールバック）
+   */
+  companyCategoryLabelMap?: Record<string, string>;
 };
+
+// 対象コード（自由記入ラベルを見出しに反映する subcategory コード）
+const OTHER_TYPE_CODES: ReadonlySet<string> = new Set([
+  "other",
+  "office_other",
+  "planning_other",
+  "care_other",
+]);
+
+function isOtherTypeCode(code: string): boolean {
+  return OTHER_TYPE_CODES.has(code);
+}
 
 const OTHER_OPTION_LABEL = "その他（自由記述）";
 
@@ -202,28 +222,54 @@ function buildOtherSubcategory(otherLabel: string | null): SpecSubcategory {
 }
 
 /**
- * 会社別 subcategory を解決する（T-035: 業界混在対応）。
+ * 会社別 subcategory を解決する（T-035: 業界混在対応 / T-052: 会社別ラベル対応）。
  * - companyCategoryMap に該当インデックスがあればそれを使う
- * - 値が "other" → buildOtherSubcategory(otherLabel)
+ * - 値が "other" → buildOtherSubcategory(会社別ラベル or 全社共通 otherLabel)
+ * - 対象コード（OTHER_TYPE_CODES）かつ companyCategoryLabelMap に該当ラベルあり →
+ *   subcategory.label を「{元label}（{ラベル}）」で上書き
  * - 値が未知のコード → 警告ログを出して defaultSubcategory にフォールバック
  * - 該当キーが無い / マップ自体が undefined → defaultSubcategory にフォールバック
+ *
+ * 戻り値の appliedLabel は、会社別自由記入ラベルが実際に反映された場合のみ非 null。
+ * 呼び出し側は appliedLabel が非 null のときだけセクション見出しにカテゴリ名を織り込む。
  */
 function resolveCompanySubcategory(
   index: number,
   companyCategoryMap: Record<string, string> | undefined,
+  companyCategoryLabelMap: Record<string, string> | undefined,
   spec: GenerateFormSpec,
   otherLabel: string | null,
   defaultSubcategory: SpecSubcategory
-): { subcategory: SpecSubcategory; resolvedCode: string; source: "map" | "default" } {
+): {
+  subcategory: SpecSubcategory;
+  resolvedCode: string;
+  source: "map" | "default";
+  appliedLabel: string | null;
+} {
   const key = String(index);
   const code = companyCategoryMap?.[key];
+  const rawCompanyLabel = companyCategoryLabelMap?.[key];
+  const companyLabel =
+    typeof rawCompanyLabel === "string" && rawCompanyLabel.trim() ? rawCompanyLabel.trim() : null;
 
   if (!code) {
-    return { subcategory: defaultSubcategory, resolvedCode: "(default)", source: "default" };
+    return {
+      subcategory: defaultSubcategory,
+      resolvedCode: "(default)",
+      source: "default",
+      appliedLabel: null,
+    };
   }
 
   if (code === "other") {
-    return { subcategory: buildOtherSubcategory(otherLabel), resolvedCode: "other", source: "map" };
+    // 会社別ラベルがあればそれを優先、なければ全社共通 otherLabel にフォールバック
+    const effectiveLabel = companyLabel ?? otherLabel;
+    return {
+      subcategory: buildOtherSubcategory(effectiveLabel),
+      resolvedCode: "other",
+      source: "map",
+      appliedLabel: effectiveLabel && effectiveLabel.trim() ? effectiveLabel.trim() : null,
+    };
   }
 
   const sub = spec.subcategories[code];
@@ -231,9 +277,25 @@ function resolveCompanySubcategory(
     console.warn(
       `[generate_form] Unknown subcategory code "${code}" at index ${index}, falling back to default`
     );
-    return { subcategory: defaultSubcategory, resolvedCode: "(default)", source: "default" };
+    return {
+      subcategory: defaultSubcategory,
+      resolvedCode: "(default)",
+      source: "default",
+      appliedLabel: null,
+    };
   }
-  return { subcategory: sub, resolvedCode: code, source: "map" };
+
+  // その他系コード + 会社別ラベルあり → label を上書き（質問内容は不変）
+  if (companyLabel && isOtherTypeCode(code)) {
+    return {
+      subcategory: { ...sub, label: `${sub.label}（${companyLabel}）` },
+      resolvedCode: code,
+      source: "map",
+      appliedLabel: companyLabel,
+    };
+  }
+
+  return { subcategory: sub, resolvedCode: code, source: "map", appliedLabel: null };
 }
 
 // ---- ヘルパー ----
@@ -321,12 +383,28 @@ function buildAddressSection(
   };
 }
 
+/**
+ * 会社別セクション見出しに、会社別ラベルが適用された subcategory のカテゴリ名を織り込む。
+ * 例: 「テスト株式会社での業務内容について追加でご確認させてください。」
+ *  → 「テスト株式会社でのその他事務（特許事務）の業務内容について追加でご確認させてください。」
+ *
+ * spec の title_template に "業務内容" が含まれることを前提に置換する。含まれない場合は末尾に
+ * 角括弧でフォールバック付加する（堅牢性のため）。
+ */
+function applyCategoryLabelToHeader(baseHeader: string, categoryLabel: string): string {
+  if (baseHeader.includes("業務内容")) {
+    return baseHeader.replace("業務内容", `${categoryLabel}の業務内容`);
+  }
+  return `${baseHeader} [${categoryLabel}]`;
+}
+
 function buildWorkContentSections(
   spec: SpecWorkContent,
   workHistory: WorkHistoryItem[],
   defaultSubcategory: SpecSubcategory,
   fullSpec: GenerateFormSpec,
   companyCategoryMap: Record<string, string> | undefined,
+  companyCategoryLabelMap: Record<string, string> | undefined,
   otherLabel: string | null
 ): FormSection[] {
   const dyn = spec.dynamic_per_company;
@@ -354,16 +432,17 @@ function buildWorkContentSections(
     const company = workHistory[i];
     const items: QuestionItem[] = [];
 
-    // 会社ごとに subcategory を解決（T-035: 業界混在対応）
-    const { subcategory, resolvedCode, source } = resolveCompanySubcategory(
+    // 会社ごとに subcategory を解決（T-035: 業界混在対応 / T-052: 会社別ラベル対応）
+    const { subcategory, resolvedCode, source, appliedLabel } = resolveCompanySubcategory(
       i,
       companyCategoryMap,
+      companyCategoryLabelMap,
       fullSpec,
       otherLabel,
       defaultSubcategory
     );
     console.log(
-      `[generate_form] index=${i} company="${company.company ?? ""}" resolvedSubcategory=${resolvedCode} source=${source}`
+      `[generate_form] index=${i} company="${company.company ?? ""}" resolvedSubcategory=${resolvedCode} source=${source} appliedLabel=${appliedLabel ?? "(none)"}`
     );
 
     // 配属情報 3 質問
@@ -412,9 +491,14 @@ function buildWorkContentSections(
       required: typeof dyn.notable_work.required === "boolean" ? dyn.notable_work.required : null,
     });
 
+    const baseHeader = replaceCompanyVars(dyn.company_header.title_template, company);
+    const header = appliedLabel
+      ? applyCategoryLabelToHeader(baseHeader, subcategory.label)
+      : baseHeader;
+
     sections.push({
       id: `work_content_${i}`,
-      header: replaceCompanyVars(dyn.company_header.title_template, company),
+      header,
       items,
     });
   }
@@ -502,6 +586,7 @@ function buildQuestionsJson(input: GenerateFormInput): QuestionsJson {
           defaultSubcategory,
           spec,
           input.companyCategoryMap,
+          input.companyCategoryLabelMap,
           input.achievementCategoryOtherLabel
         )
       );
@@ -580,6 +665,41 @@ export async function POST(request: NextRequest) {
       companyCategoryMap = validated;
     }
 
+    // companyCategoryLabelMap (T-052: その他系の会社別自由記入ラベル / optional)
+    let companyCategoryLabelMap: Record<string, string> | undefined;
+    if (body.companyCategoryLabelMap !== undefined && body.companyCategoryLabelMap !== null) {
+      const raw = body.companyCategoryLabelMap;
+      if (typeof raw !== "object" || Array.isArray(raw)) {
+        return NextResponse.json(
+          { error: "companyCategoryLabelMap はオブジェクト（{ \"0\": \"特許事務\", ... }形式）で指定してください。" },
+          { status: 400 }
+        );
+      }
+      const entries = Object.entries(raw as Record<string, unknown>);
+      const validated: Record<string, string> = {};
+      for (const [k, v] of entries) {
+        if (!/^\d+$/.test(k)) {
+          return NextResponse.json(
+            { error: `companyCategoryLabelMap のキーは数値文字列である必要があります（不正なキー: "${k}"）。` },
+            { status: 400 }
+          );
+        }
+        if (typeof v !== "string") {
+          return NextResponse.json(
+            { error: `companyCategoryLabelMap の値は文字列である必要があります（キー "${k}" の値が不正）。` },
+            { status: 400 }
+          );
+        }
+        const trimmed = v.trim();
+        if (trimmed) {
+          validated[k] = trimmed;
+        }
+      }
+      if (Object.keys(validated).length > 0) {
+        companyCategoryLabelMap = validated;
+      }
+    }
+
     if (!candidateId || !/^5\d{6}$/.test(candidateId)) {
       return NextResponse.json(
         { error: "candidateId は5から始まる7桁の数字で指定してください。" },
@@ -605,6 +725,7 @@ export async function POST(request: NextRequest) {
     console.log(
       `[generate_form] start candidateId=${candidateId} defaultCategory=${achievementCategory} ` +
         `companyCategoryMap=${companyCategoryMap ? JSON.stringify(companyCategoryMap) : "none"} ` +
+        `companyCategoryLabelMap=${companyCategoryLabelMap ? JSON.stringify(companyCategoryLabelMap) : "none"} ` +
         `workHistoryCount=${workHistoryCount}`
     );
 
@@ -616,6 +737,7 @@ export async function POST(request: NextRequest) {
       achievementCategory,
       achievementCategoryOtherLabel,
       companyCategoryMap,
+      companyCategoryLabelMap,
     };
 
     let questionsJson: QuestionsJson;
