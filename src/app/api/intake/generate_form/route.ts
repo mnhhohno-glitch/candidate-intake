@@ -13,6 +13,7 @@ import fs from "fs";
 import path from "path";
 import yaml from "js-yaml";
 import { NextRequest, NextResponse } from "next/server";
+import { generateWithGemini, parseJsonResponse } from "@/services/geminiClient";
 import {
   isValidQuestionsJson,
   type FormSection,
@@ -221,31 +222,229 @@ function buildOtherSubcategory(otherLabel: string | null): SpecSubcategory {
   };
 }
 
+// =============================================================================
+// T-053: その他系の質問を Gemini で動的生成
+// =============================================================================
+
 /**
- * 会社別 subcategory を解決する（T-035: 業界混在対応 / T-052: 会社別ラベル対応）。
+ * 動的生成の出力スキーマ（Gemini responseSchema 用）。
+ * duties_choices: string[] / mindset_choices: string[] / kpi_questions: SpecItem[]
+ */
+const DYNAMIC_SUBCATEGORY_SCHEMA = {
+  type: "object",
+  properties: {
+    duties_choices: { type: "array", items: { type: "string" } },
+    mindset_choices: { type: "array", items: { type: "string" } },
+    kpi_questions: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          help_text: { type: "string" },
+          type: { type: "string", enum: ["short_text", "long_text"] },
+          required: { type: "boolean" },
+        },
+        required: ["title", "type"],
+      },
+    },
+  },
+  required: ["duties_choices", "mindset_choices", "kpi_questions"],
+} as const;
+
+/**
+ * 動的生成用プロンプトを組み立てる。
+ * 既存サブカテゴリ（営業事務）の件数・書式・トーンを few-shot として提示し、
+ * 指定職種に合わせて作り直すよう指示する。
+ */
+function buildDynamicSubcategoryPrompt(
+  label: string,
+  parentCategoryLabel: string
+): { systemInstruction: string; userPrompt: string } {
+  const systemInstruction = [
+    "あなたは人材紹介会社の質問フォーム設計の専門家です。",
+    "求職者の職務経歴ヒアリング用に、指定された職種に最適化された質問テンプレートを作成します。",
+    "出力は必ず指定された JSON スキーマに厳密に従ってください。説明文やマークダウンは一切含めないでください。",
+  ].join("\n");
+
+  // few-shot 例（営業事務）。書式・件数・トーンの参考。内容は職種に合わせて作り直させる。
+  const example = {
+    duties_choices: [
+      "受発注処理・データ入力",
+      "見積書・請求書・契約書の作成",
+      "在庫管理・納期管理",
+      "顧客からの電話・メール対応",
+      "営業担当のサポート（資料作成・スケジュール調整）",
+      "売上・売掛金・買掛金の管理",
+      "取引先との納品・検収調整",
+      "各種帳票・伝票の管理・整理",
+      "システム入力・データ集計（Excel/基幹システム）",
+      "議事録・会議資料の作成",
+      "来客対応・備品管理",
+    ],
+    mindset_choices: [
+      "正確性を最優先に処理ミスを防ぐ",
+      "業務効率化のためのフォーマット整備・テンプレ化",
+      "営業担当のスケジュール・進捗を先回りで把握する",
+      "顧客対応では迅速・丁寧を徹底する",
+      "期日・納期管理を徹底する",
+      "システム・Excel 等のスキルを継続的に向上させる",
+      "チーム内で業務情報を共有し属人化を防ぐ",
+      "取引先との関係構築・継続的なコミュニケーション",
+      "コスト意識を持って業務遂行する",
+      "ミス防止のためのダブルチェック",
+      "後輩・新人への業務マニュアル整備・引継ぎ",
+    ],
+    kpi_questions: [
+      {
+        title: "{company.name}での月間処理件数を教えてください",
+        help_text:
+          "受発注・伝票処理・データ入力等の月間件数を数値で入力してください。例：200\n※該当しない場合は空白で構いません",
+        type: "short_text",
+        required: false,
+      },
+      {
+        title: "{company.name}で行った業務効率化の実績があれば教えてください",
+        help_text:
+          "例：月20時間の削減、Excelマクロ化で処理時間50%短縮 等\n※該当しない場合は空白で構いません",
+        type: "long_text",
+        required: false,
+      },
+    ],
+  };
+
+  const userPrompt = [
+    `職種カテゴリ: ${parentCategoryLabel}`,
+    `具体的な職種名: 「${label}」`,
+    "",
+    `上記の職種「${label}」について、職務経歴ヒアリング用の質問テンプレートを作成してください。`,
+    "",
+    "## 要件",
+    "1. duties_choices: この職種で担当する具体的な業務内容の選択肢をちょうど11個。各項目は簡潔な名詞句（例：「受発注処理・データ入力」）。",
+    "2. mindset_choices: この職種で意識・工夫すべきことの選択肢をちょうど11個。各項目は簡潔な句。",
+    "3. kpi_questions: この職種の実績・数値・専門性を引き出す質問を3〜5個。各質問は以下の構造:",
+    "   - title: 質問文。会社名を差し込む箇所は必ず {company.name} というプレースホルダーを使う（例：「{company.name}での月間対応件数を教えてください」）",
+    "   - help_text: 記入例を含む補足。末尾に必ず「※該当しない場合は空白で構いません」を付ける",
+    '   - type: 数値・短い回答は "short_text"、自由記述・エピソードは "long_text"',
+    "   - required: 必ず false",
+    "",
+    "## 形式参考（営業事務の例。形式のみ参考にし、内容は必ず指定職種向けに作り直すこと）",
+    JSON.stringify(example, null, 2),
+    "",
+    `重要: 必ず「${label}」の職種特性に合った具体的な内容にしてください。上記の営業事務の例をそのまま流用してはいけません。`,
+  ].join("\n");
+
+  return { systemInstruction, userPrompt };
+}
+
+/**
+ * Gemini 出力を検証し、SpecSubcategory の中身（duties/mindset/kpi）に正規化する。
+ * 不正・空配列・要素欠落は null を返す（呼び出し側でフォールバック）。
+ */
+function validateDynamicSubcategory(obj: unknown): {
+  duties_choices: string[];
+  mindset_choices: string[];
+  kpi_questions: SpecItem[];
+} | null {
+  if (!obj || typeof obj !== "object") return null;
+  const o = obj as Record<string, unknown>;
+
+  const dutiesRaw = o.duties_choices;
+  const mindsetRaw = o.mindset_choices;
+  const kpisRaw = o.kpi_questions;
+  if (!Array.isArray(dutiesRaw) || !Array.isArray(mindsetRaw) || !Array.isArray(kpisRaw)) {
+    return null;
+  }
+
+  const duties = dutiesRaw.filter(
+    (d): d is string => typeof d === "string" && d.trim().length > 0
+  );
+  const mindset = mindsetRaw.filter(
+    (m): m is string => typeof m === "string" && m.trim().length > 0
+  );
+  if (duties.length === 0 || mindset.length === 0) return null;
+
+  const kpis: SpecItem[] = [];
+  for (const k of kpisRaw) {
+    if (!k || typeof k !== "object") continue;
+    const kk = k as Record<string, unknown>;
+    if (typeof kk.title !== "string" || !kk.title.trim()) continue;
+    const type: QuestionItemType = kk.type === "long_text" ? "long_text" : "short_text";
+    kpis.push({
+      title: kk.title.trim(),
+      help_text: typeof kk.help_text === "string" && kk.help_text.trim() ? kk.help_text : undefined,
+      type,
+      required: false,
+    });
+  }
+  if (kpis.length === 0) return null;
+
+  return { duties_choices: duties, mindset_choices: mindset, kpi_questions: kpis };
+}
+
+/**
+ * 指定職種ラベルから Gemini で SpecSubcategory を動的生成する。
+ * 失敗（API エラー / タイムアウト / 不正 JSON / バリデーション失敗）時は throw。
+ * 呼び出し側で固定フォールバックに切り替える。
+ */
+async function generateDynamicSubcategory(
+  label: string,
+  parentCategoryLabel: string
+): Promise<SpecSubcategory> {
+  const { systemInstruction, userPrompt } = buildDynamicSubcategoryPrompt(label, parentCategoryLabel);
+  const raw = await generateWithGemini({
+    systemInstruction,
+    userPrompt,
+    responseMimeType: "application/json",
+    responseSchema: DYNAMIC_SUBCATEGORY_SCHEMA,
+    temperature: 0.3,
+    maxOutputTokens: 4096,
+  });
+  const parsed = parseJsonResponse<unknown>(raw);
+  const validated = validateDynamicSubcategory(parsed);
+  if (!validated) {
+    throw new Error("dynamic subcategory validation failed (empty or malformed)");
+  }
+  return {
+    label: `${parentCategoryLabel}（${label}）`,
+    duties_choices: validated.duties_choices,
+    mindset_choices: validated.mindset_choices,
+    kpi_questions: validated.kpi_questions,
+  };
+}
+
+/**
+ * 会社別 subcategory の「解決プラン」。動的生成が必要な場合は dynamic に記述子を持つ。
+ * subcategory は固定フォールバック（動的生成成功時は cache の生成結果で置換される）。
+ */
+type CompanySubcategoryPlan = {
+  subcategory: SpecSubcategory;
+  resolvedCode: string;
+  source: "map" | "default";
+  appliedLabel: string | null;
+  /** 動的生成が必要なときの記述子。cacheKey で会社横断にキャッシュ・集約する。 */
+  dynamic: { cacheKey: string; label: string; parentLabel: string } | null;
+};
+
+/**
+ * 会社別 subcategory の解決プランを作る（同期）。T-035 / T-052 / T-053。
  * - companyCategoryMap に該当インデックスがあればそれを使う
  * - 値が "other" → buildOtherSubcategory(会社別ラベル or 全社共通 otherLabel)
- * - 対象コード（OTHER_TYPE_CODES）かつ companyCategoryLabelMap に該当ラベルあり →
- *   subcategory.label を「{元label}（{ラベル}）」で上書き
+ * - 対象コード（OTHER_TYPE_CODES）かつラベル非空 → 固定フォールバックを subcategory に、
+ *   dynamic 記述子（cacheKey/label/parentLabel）を付与（後段で Gemini 生成 or フォールバック）
  * - 値が未知のコード → 警告ログを出して defaultSubcategory にフォールバック
  * - 該当キーが無い / マップ自体が undefined → defaultSubcategory にフォールバック
  *
- * 戻り値の appliedLabel は、会社別自由記入ラベルが実際に反映された場合のみ非 null。
- * 呼び出し側は appliedLabel が非 null のときだけセクション見出しにカテゴリ名を織り込む。
+ * appliedLabel は会社別自由記入ラベルが反映された場合のみ非 null（見出し織り込み用）。
  */
-function resolveCompanySubcategory(
+function planCompanySubcategory(
   index: number,
   companyCategoryMap: Record<string, string> | undefined,
   companyCategoryLabelMap: Record<string, string> | undefined,
   spec: GenerateFormSpec,
   otherLabel: string | null,
   defaultSubcategory: SpecSubcategory
-): {
-  subcategory: SpecSubcategory;
-  resolvedCode: string;
-  source: "map" | "default";
-  appliedLabel: string | null;
-} {
+): CompanySubcategoryPlan {
   const key = String(index);
   const code = companyCategoryMap?.[key];
   const rawCompanyLabel = companyCategoryLabelMap?.[key];
@@ -258,17 +457,22 @@ function resolveCompanySubcategory(
       resolvedCode: "(default)",
       source: "default",
       appliedLabel: null,
+      dynamic: null,
     };
   }
 
   if (code === "other") {
     // 会社別ラベルがあればそれを優先、なければ全社共通 otherLabel にフォールバック
-    const effectiveLabel = companyLabel ?? otherLabel;
+    const rawEffective = companyLabel ?? otherLabel;
+    const effectiveLabel = rawEffective && rawEffective.trim() ? rawEffective.trim() : null;
     return {
       subcategory: buildOtherSubcategory(effectiveLabel),
       resolvedCode: "other",
       source: "map",
-      appliedLabel: effectiveLabel && effectiveLabel.trim() ? effectiveLabel.trim() : null,
+      appliedLabel: effectiveLabel,
+      dynamic: effectiveLabel
+        ? { cacheKey: `other::${effectiveLabel}`, label: effectiveLabel, parentLabel: "その他" }
+        : null,
     };
   }
 
@@ -282,20 +486,69 @@ function resolveCompanySubcategory(
       resolvedCode: "(default)",
       source: "default",
       appliedLabel: null,
+      dynamic: null,
     };
   }
 
-  // その他系コード + 会社別ラベルあり → label を上書き（質問内容は不変）
+  // その他系コード + 会社別ラベルあり → 固定フォールバックを relabel し、動的生成を予約
   if (companyLabel && isOtherTypeCode(code)) {
     return {
       subcategory: { ...sub, label: `${sub.label}（${companyLabel}）` },
       resolvedCode: code,
       source: "map",
       appliedLabel: companyLabel,
+      dynamic: { cacheKey: `${code}::${companyLabel}`, label: companyLabel, parentLabel: sub.label },
     };
   }
 
-  return { subcategory: sub, resolvedCode: code, source: "map", appliedLabel: null };
+  return {
+    subcategory: sub,
+    resolvedCode: code,
+    source: "map",
+    appliedLabel: null,
+    dynamic: null,
+  };
+}
+
+/**
+ * dynamic 記述子のユニークキー群を並列生成し、cache に充填する。
+ * 失敗したキーは fallback（プラン内の固定 subcategory）を cache に格納する（再試行抑制）。
+ * 同一 cacheKey は1回のみ生成（複数社で同じ職種ラベル → Gemini 呼び出し1回に集約）。
+ */
+async function fillDynamicCache(
+  plans: CompanySubcategoryPlan[],
+  cache: Map<string, SpecSubcategory>
+): Promise<void> {
+  // ユニークな生成要求を集約（cacheKey → {label, parentLabel, fallback}）
+  const requests = new Map<string, { label: string; parentLabel: string; fallback: SpecSubcategory }>();
+  for (const p of plans) {
+    if (p.dynamic && !cache.has(p.dynamic.cacheKey) && !requests.has(p.dynamic.cacheKey)) {
+      requests.set(p.dynamic.cacheKey, {
+        label: p.dynamic.label,
+        parentLabel: p.dynamic.parentLabel,
+        fallback: p.subcategory,
+      });
+    }
+  }
+  if (requests.size === 0) return;
+
+  await Promise.all(
+    [...requests.entries()].map(async ([cacheKey, req]) => {
+      try {
+        const started = Date.now();
+        const gen = await generateDynamicSubcategory(req.label, req.parentLabel);
+        cache.set(cacheKey, gen);
+        console.log(
+          `[generate_form] dynamic gen OK key="${cacheKey}" latency_ms=${Date.now() - started} ` +
+            `duties=${gen.duties_choices.length} mindset=${gen.mindset_choices.length} kpi=${gen.kpi_questions.length}`
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn(`[generate_form] dynamic gen FAILED key="${cacheKey}" → fallback. error=${msg}`);
+        cache.set(cacheKey, req.fallback);
+      }
+    })
+  );
 }
 
 // ---- ヘルパー ----
@@ -398,14 +651,16 @@ function applyCategoryLabelToHeader(baseHeader: string, categoryLabel: string): 
   return `${baseHeader} [${categoryLabel}]`;
 }
 
+/**
+ * 業務内容セクションを組み立てる（同期）。
+ * 動的生成は事前に fillDynamicCache で cache へ充填済みである前提。
+ * plans[i] が dynamic を持つ場合は cache から生成結果（or フォールバック）を引く。
+ */
 function buildWorkContentSections(
   spec: SpecWorkContent,
   workHistory: WorkHistoryItem[],
-  defaultSubcategory: SpecSubcategory,
-  fullSpec: GenerateFormSpec,
-  companyCategoryMap: Record<string, string> | undefined,
-  companyCategoryLabelMap: Record<string, string> | undefined,
-  otherLabel: string | null
+  plans: CompanySubcategoryPlan[],
+  dynamicCache: Map<string, SpecSubcategory>
 ): FormSection[] {
   const dyn = spec.dynamic_per_company;
   const sections: FormSection[] = [];
@@ -432,17 +687,18 @@ function buildWorkContentSections(
     const company = workHistory[i];
     const items: QuestionItem[] = [];
 
-    // 会社ごとに subcategory を解決（T-035: 業界混在対応 / T-052: 会社別ラベル対応）
-    const { subcategory, resolvedCode, source, appliedLabel } = resolveCompanySubcategory(
-      i,
-      companyCategoryMap,
-      companyCategoryLabelMap,
-      fullSpec,
-      otherLabel,
-      defaultSubcategory
-    );
+    const plan = plans[i];
+    const { resolvedCode, source, appliedLabel } = plan;
+    // 動的生成があれば cache から（成功=生成結果 / 失敗=フォールバック）。無ければプランの固定 subcategory。
+    const subcategory =
+      plan.dynamic && dynamicCache.has(plan.dynamic.cacheKey)
+        ? dynamicCache.get(plan.dynamic.cacheKey)!
+        : plan.subcategory;
+    const dynamicUsed = plan.dynamic
+      ? dynamicCache.get(plan.dynamic.cacheKey) === subcategory && subcategory !== plan.subcategory
+      : false;
     console.log(
-      `[generate_form] index=${i} company="${company.company ?? ""}" resolvedSubcategory=${resolvedCode} source=${source} appliedLabel=${appliedLabel ?? "(none)"}`
+      `[generate_form] index=${i} company="${company.company ?? ""}" resolvedSubcategory=${resolvedCode} source=${source} appliedLabel=${appliedLabel ?? "(none)"} dynamic=${plan.dynamic ? (dynamicUsed ? "gen" : "fallback") : "no"}`
     );
 
     // 配属情報 3 質問
@@ -544,7 +800,7 @@ function buildGenericSection(id: string, spec: SpecGenericSection): FormSection 
 
 // ---- メイン展開 ----
 
-function buildQuestionsJson(input: GenerateFormInput): QuestionsJson {
+async function buildQuestionsJson(input: GenerateFormInput): Promise<QuestionsJson> {
   const spec = loadSpec();
 
   // achievementCategory から default(全社共通フォールバック / mindset_section 用) subcategory を解決
@@ -559,6 +815,54 @@ function buildQuestionsJson(input: GenerateFormInput): QuestionsJson {
       `Unknown achievementCategory: ${input.achievementCategory}. Must be one of ${knownCount} subcategories or "other".`
     );
   }
+
+  // ---- T-053: その他系の動的生成 ----
+  // 会社別プランを作成（同期）→ 動的生成が必要なユニークキーを並列生成して cache へ充填。
+  const dynamicCache = new Map<string, SpecSubcategory>();
+  const workHistory = Array.isArray(input.resumeData.work_history)
+    ? input.resumeData.work_history
+    : [];
+  const workPlans = workHistory.map((_, i) =>
+    planCompanySubcategory(
+      i,
+      input.companyCategoryMap,
+      input.companyCategoryLabelMap,
+      spec,
+      input.achievementCategoryOtherLabel,
+      defaultSubcategory
+    )
+  );
+
+  // mindset_section 用のグローバル default も、その他系 + 全社共通ラベル非空なら動的化する。
+  const globalLabel = (input.achievementCategoryOtherLabel ?? "").trim();
+  let defaultPlan: CompanySubcategoryPlan | null = null;
+  if (globalLabel && isOtherTypeCode(input.achievementCategory)) {
+    const parentLabel =
+      input.achievementCategory === "other"
+        ? "その他"
+        : spec.subcategories[input.achievementCategory].label;
+    defaultPlan = {
+      subcategory: defaultSubcategory,
+      resolvedCode: input.achievementCategory,
+      source: "default",
+      appliedLabel: globalLabel,
+      dynamic: {
+        cacheKey: `${input.achievementCategory}::${globalLabel}`,
+        label: globalLabel,
+        parentLabel,
+      },
+    };
+  }
+
+  // グローバル default + 全社分をまとめて並列生成（同一 cacheKey は1回に集約）
+  const allPlans = defaultPlan ? [defaultPlan, ...workPlans] : workPlans;
+  await fillDynamicCache(allPlans, dynamicCache);
+
+  // mindset_section 用の実効 default（動的生成成功時は置換）
+  const effectiveDefaultSubcategory =
+    defaultPlan?.dynamic && dynamicCache.has(defaultPlan.dynamic.cacheKey)
+      ? dynamicCache.get(defaultPlan.dynamic.cacheKey)!
+      : defaultSubcategory;
 
   const sections: FormSection[] = [];
   for (const sectionKey of spec.section_order) {
@@ -582,17 +886,14 @@ function buildQuestionsJson(input: GenerateFormInput): QuestionsJson {
       sections.push(
         ...buildWorkContentSections(
           spec.work_content_section,
-          input.resumeData.work_history,
-          defaultSubcategory,
-          spec,
-          input.companyCategoryMap,
-          input.companyCategoryLabelMap,
-          input.achievementCategoryOtherLabel
+          workHistory,
+          workPlans,
+          dynamicCache
         )
       );
     } else if (sectionKey === "mindset_section") {
-      // mindset_section は候補者全体の仕事観を問う質問のため defaultSubcategory を使用
-      sections.push(buildMindsetSection(spec.mindset_section, defaultSubcategory));
+      // mindset_section は候補者全体の仕事観を問う質問のため（動的化された）default を使用
+      sections.push(buildMindsetSection(spec.mindset_section, effectiveDefaultSubcategory));
     } else if (sectionKey === "work_consciousness") {
       sections.push(
         buildGenericSection("work_consciousness", spec.generic_sections.work_consciousness)
@@ -742,7 +1043,7 @@ export async function POST(request: NextRequest) {
 
     let questionsJson: QuestionsJson;
     try {
-      questionsJson = buildQuestionsJson(input);
+      questionsJson = await buildQuestionsJson(input);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error(`[generate_form] build failed candidateId=${candidateId} error=${msg}`);
