@@ -33,6 +33,16 @@ const VALID_ITEM_TYPES: ReadonlySet<string> = new Set([
   "section_header",
 ]);
 
+// 選択肢が必須の type（choices が空ならフォーム上壊れる）
+const SELECT_ITEM_TYPES: ReadonlySet<string> = new Set([
+  "single_select",
+  "multi_select",
+  "dropdown",
+]);
+
+// 1 セクションあたりの Gemini 再試行回数（preview モデルの間欠失敗・検証失敗対策）
+const MAX_REVISION_ATTEMPTS = 3;
+
 /**
  * 再生成を許可する sectionId 判定（ホワイトリスト＝サーバ側二重防御）。
  * - 許可: "mindset"（意識/工夫）, "work_content_<数字>"（会社別の業務内容セクション。その他系の AI 生成質問を含む）
@@ -158,6 +168,10 @@ function validateRevisedItems(obj: unknown): QuestionItem[] | null {
       );
       choices = cleaned.length > 0 ? cleaned : null;
     }
+    // 選択式なのに choices が空 → フォーム上壊れる項目。セクションごと不採用にしてフォールバック。
+    if (SELECT_ITEM_TYPES.has(type) && (!choices || choices.length === 0)) {
+      return null;
+    }
     const required = typeof o.required === "boolean" ? o.required : null;
 
     items.push({ type, title: o.title.trim(), help_text: helpText, choices, required });
@@ -166,7 +180,8 @@ function validateRevisedItems(obj: unknown): QuestionItem[] | null {
 }
 
 /**
- * 対象 item 群を指示で書き直す（Gemini）。失敗時は throw（呼び出し側でフォールバック）。
+ * 対象 item 群を指示で書き直す（Gemini）。間欠失敗・検証失敗に備えて最大 MAX_REVISION_ATTEMPTS 回試行。
+ * 全試行が失敗したら throw（呼び出し側でセクション単位フォールバック）。
  */
 async function generateItemRevision(
   originalItems: QuestionItem[],
@@ -178,20 +193,29 @@ async function generateItemRevision(
     instruction,
     contextLabel
   );
-  const raw = await generateWithGemini({
-    systemInstruction,
-    userPrompt,
-    responseMimeType: "application/json",
-    responseSchema: REVISION_SCHEMA,
-    temperature: 0.2,
-    maxOutputTokens: 8192,
-  });
-  const parsed = parseJsonResponse<unknown>(raw);
-  const items = validateRevisedItems(parsed);
-  if (!items) {
-    throw new Error("revised items validation failed (empty or malformed)");
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= MAX_REVISION_ATTEMPTS; attempt++) {
+    try {
+      const raw = await generateWithGemini({
+        systemInstruction,
+        userPrompt,
+        responseMimeType: "application/json",
+        responseSchema: REVISION_SCHEMA,
+        temperature: 0.2,
+        maxOutputTokens: 8192,
+      });
+      const parsed = parseJsonResponse<unknown>(raw);
+      const items = validateRevisedItems(parsed);
+      if (items) return items;
+      lastError = new Error("revised items validation failed (empty or malformed)");
+    } catch (e) {
+      lastError = e;
+    }
+    console.warn(
+      `[regenerate_questions] revision attempt ${attempt}/${MAX_REVISION_ATTEMPTS} failed for "${contextLabel.slice(0, 24)}"`
+    );
   }
-  return items;
+  throw lastError instanceof Error ? lastError : new Error("revision failed");
 }
 
 /**
