@@ -83,7 +83,9 @@ const REVISION_SCHEMA = {
           choices: { type: "array", items: { type: "string" } },
           required: { type: "boolean" },
         },
-        required: ["type", "title"],
+        // choices を required にして、構造化出力でドロップされるのを防ぐ
+        // （非選択式は空配列 [] を返させ、サーバ側で null 化する）
+        required: ["type", "title", "choices"],
       },
     },
   },
@@ -112,8 +114,9 @@ function buildItemRevisionPrompt(
     "・元の質問文に {company.name} 等のプレースホルダーがある場合はそのまま残す。",
     "・help_text 末尾の「※該当しない場合は空白で構いません」等の注意書きは原則維持する。",
     "・選択肢(choices)は multi_select / single_select / dropdown のときのみ設定し、他の type では設定しない。",
+    "・choices は全ての item で必ず配列として返すこと。選択式でない質問(short_text/long_text)は空配列 [] にする。",
     "・重要: 元の質問が選択式(multi_select 等)で choices を持つ場合、書き直し後も必ず choices に",
-    "  選択肢文字列を（指示が件数を指定しない限り）元と同程度の11個前後設定すること。choices を空や省略にしてはいけない。",
+    "  選択肢文字列を（指示が件数を指定しない限り）元と同程度の11個前後設定すること。choices を空配列にしてはいけない。",
     "・選択式の質問の末尾に「その他（自由記述）」が含まれていた場合は、書き直し後も末尾に残すこと。",
     "出力は必ず指定された JSON スキーマに厳密に従い、説明文やマークダウンは一切含めないこと。",
   ].join("\n");
@@ -168,9 +171,12 @@ function validateRevisedItems(obj: unknown): QuestionItem[] | null {
       );
       choices = cleaned.length > 0 ? cleaned : null;
     }
-    // 選択式なのに choices が空 → フォーム上壊れる項目。セクションごと不採用にしてフォールバック。
-    if (SELECT_ITEM_TYPES.has(type) && (!choices || choices.length === 0)) {
-      return null;
+    if (SELECT_ITEM_TYPES.has(type)) {
+      // 選択式なのに choices が空 → フォーム上壊れる項目。セクションごと不採用にしてフォールバック。
+      if (!choices || choices.length === 0) return null;
+    } else {
+      // 非選択式は choices を持たない（スキーマ上 required にした空配列を null 化）
+      choices = null;
     }
     const required = typeof o.required === "boolean" ? o.required : null;
 
