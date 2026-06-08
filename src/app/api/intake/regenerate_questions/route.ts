@@ -102,6 +102,9 @@ function buildItemRevisionPrompt(
     "・元の質問文に {company.name} 等のプレースホルダーがある場合はそのまま残す。",
     "・help_text 末尾の「※該当しない場合は空白で構いません」等の注意書きは原則維持する。",
     "・選択肢(choices)は multi_select / single_select / dropdown のときのみ設定し、他の type では設定しない。",
+    "・重要: 元の質問が選択式(multi_select 等)で choices を持つ場合、書き直し後も必ず choices に",
+    "  選択肢文字列を（指示が件数を指定しない限り）元と同程度の11個前後設定すること。choices を空や省略にしてはいけない。",
+    "・選択式の質問の末尾に「その他（自由記述）」が含まれていた場合は、書き直し後も末尾に残すこと。",
     "出力は必ず指定された JSON スキーマに厳密に従い、説明文やマークダウンは一切含めないこと。",
   ].join("\n");
 
@@ -181,7 +184,7 @@ async function generateItemRevision(
     responseMimeType: "application/json",
     responseSchema: REVISION_SCHEMA,
     temperature: 0.2,
-    maxOutputTokens: 4096,
+    maxOutputTokens: 8192,
   });
   const parsed = parseJsonResponse<unknown>(raw);
   const items = validateRevisedItems(parsed);
@@ -192,8 +195,22 @@ async function generateItemRevision(
 }
 
 /**
+ * 改訂版 item が「元は選択肢ありの選択式なのに choices を落とした」場合に、元の choices を補う。
+ * 壊れた（選択肢ゼロの）multi_select を出力しないための保険。
+ */
+function preserveChoicesIfDropped(original: QuestionItem, revised: QuestionItem): QuestionItem {
+  const origHadChoices = Array.isArray(original.choices) && original.choices.length > 0;
+  const revisedLostChoices = !Array.isArray(revised.choices) || revised.choices.length === 0;
+  if (origHadChoices && revisedLostChoices) {
+    return { ...revised, choices: original.choices };
+  }
+  return revised;
+}
+
+/**
  * セクションに改訂版 items を適用する。
- * - 件数が対象 index 数と一致 → 位置を維持して 1:1 置換（並び順を完全保持）
+ * - 件数が対象 index 数と一致 → 位置を維持して 1:1 置換（並び順を完全保持）。
+ *   このとき元が選択式で choices ありなら、改訂版が choices を落としても元の選択肢を保持する。
  * - 件数が異なる（統合/分割）→ 対象 index 群を取り除き、最小 index 位置に改訂版を差し込む
  */
 function applyRevision(
@@ -203,7 +220,7 @@ function applyRevision(
 ): void {
   if (revisedItems.length === sortedTargetIndices.length) {
     sortedTargetIndices.forEach((idx, k) => {
-      section.items[idx] = revisedItems[k];
+      section.items[idx] = preserveChoicesIfDropped(section.items[idx], revisedItems[k]);
     });
     return;
   }
