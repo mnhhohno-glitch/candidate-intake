@@ -11,6 +11,41 @@ import { NextRequest, NextResponse } from "next/server";
 const GAS_V2_WEB_APP_URL = process.env.GAS_WEB_APP_URL_V2 ?? "";
 const GAS_V2_INVOKE_TOKEN = process.env.GAS_INVOKE_TOKEN_V2 ?? "";
 
+/** 診断メッセージに載せる本文の最大文字数 */
+const RAW_PREVIEW_LIMIT = 1200;
+
+/**
+ * 診断メッセージに出す前に機微情報を伏せる。
+ * 求職者の氏名・質問文は portal 画面に元々出ている情報なのでマスク対象外。
+ */
+function maskSensitive(text: string): string {
+  return text
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer ***MASKED***")
+    .replace(
+      /\b([A-Za-z0-9_-]*(?:key|token|secret|password))(\s*[=:]\s*"?)([^\s"'&,;}\]]+)/gi,
+      "$1$2***MASKED***"
+    )
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "***MASKED_EMAIL***");
+}
+
+/**
+ * GAS V2 の応答を1行の診断文字列にまとめる。
+ * ステータス / content-type / リダイレクト後URL / 本文先頭を含む。
+ */
+function describeGasResponse(gasRes: Response, raw: string): string {
+  const contentType = gasRes.headers.get("content-type") ?? "(none)";
+  const collapsed = maskSensitive(raw).replace(/\s*[\r\n]+\s*/g, " ").trim();
+  const bodyPreview = collapsed ? collapsed.slice(0, RAW_PREVIEW_LIMIT) : "(empty)";
+  const truncated = collapsed.length > RAW_PREVIEW_LIMIT ? `...(+${collapsed.length - RAW_PREVIEW_LIMIT}文字)` : "";
+
+  const parts = [`status=${gasRes.status}`, `content-type=${contentType}`];
+  if (gasRes.redirected && gasRes.url) {
+    parts.push(`finalUrl=${maskSensitive(gasRes.url)}`);
+  }
+  parts.push(`bodyPreview=${bodyPreview}${truncated}`);
+  return parts.join(" ");
+}
+
 export async function POST(request: NextRequest) {
   const startedAt = Date.now();
   let candidateId = "";
@@ -78,34 +113,49 @@ export async function POST(request: NextRequest) {
     try {
       data = JSON.parse(raw) as typeof data;
     } catch {
-      const bodyPreview = raw.slice(0, 500);
+      const diagnostic = describeGasResponse(gasRes, raw);
       console.error(
-        `[create_form_v2] GAS V2 response not JSON candidateId=${candidateId} status=${gasRes.status} bodyPreview=${bodyPreview}`
+        `[create_form_v2] GAS V2 response not JSON candidateId=${candidateId} ${diagnostic}`
       );
       const isLikelyConsent =
-        /authorization|許可|consent|Access|アクセスを許可|このアプリへのアクセス/i.test(bodyPreview);
+        /authorization|許可|consent|Access|アクセスを許可|このアプリへのアクセス/i.test(raw.slice(0, RAW_PREVIEW_LIMIT));
       const hint = isLikelyConsent
         ? "GAS V2 のウェブアプリURLをブラウザで一度開き、「アクセスを許可」をクリックしてください。"
         : "GAS V2 の「実行数」で失敗時のエラー内容を確認し、Code.gs を最新版にしたうえで「新バージョン」でデプロイし直してください。";
       return NextResponse.json(
-        { error: "Googleフォームの作成に失敗しました。GAS V2 が JSON を返していません。" + hint },
+        {
+          error:
+            "Googleフォームの作成に失敗しました。GAS V2 が JSON を返していません。" +
+            hint +
+            " [GAS応答] " +
+            diagnostic,
+          detail: diagnostic,
+        },
         { status: 502 }
       );
     }
 
-    if (!gasRes.ok || data.error) {
+    if (!gasRes.ok || data?.error) {
       console.warn(
-        `[create_form_v2] GAS V2 error candidateId=${candidateId} status=${gasRes.status} error=${data.error ?? "(none)"}`
+        `[create_form_v2] GAS V2 error candidateId=${candidateId} status=${gasRes.status} error=${data?.error ?? "(none)"}`
       );
       return NextResponse.json(
-        { error: data.error ?? "Googleフォームの作成に失敗しました。" },
+        { error: data?.error ?? "Googleフォームの作成に失敗しました。" },
         { status: 502 }
       );
     }
 
-    if (!data.responseUrl || typeof data.responseUrl !== "string") {
+    // JSON パースには成功したが期待するキーが無いケースも、生の応答を残して原因を追えるようにする
+    if (!data || typeof data !== "object" || !data.responseUrl || typeof data.responseUrl !== "string") {
+      const diagnostic = describeGasResponse(gasRes, raw);
+      console.error(
+        `[create_form_v2] GAS V2 response missing responseUrl candidateId=${candidateId} ${diagnostic}`
+      );
       return NextResponse.json(
-        { error: "フォームURLを取得できませんでした。" },
+        {
+          error: "フォームURLを取得できませんでした。GAS V2 の応答に responseUrl がありません。 [GAS応答] " + diagnostic,
+          detail: diagnostic,
+        },
         { status: 502 }
       );
     }
